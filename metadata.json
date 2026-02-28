@@ -1,0 +1,8 @@
+{
+  "name": "おしゃべりカメラ",
+  "description": "写真を撮ると、そのモノから電話がかかってきておしゃべりできる子供向けアプリ",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
