@@ -6,14 +6,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Camera, Phone, PhoneOff, Settings, User, Globe } from 'lucide-react';
-import { analyzeObject, GeminiLiveSession, CharacterProfile } from './services/gemini';
+import { analyzeObject, GeminiLiveSession, CharacterProfile, Persona, PERSONAS } from './services/gemini';
 import { AudioRecorder, AudioStreamer } from './lib/audio';
 
 type AppState = 'setup' | 'camera' | 'analyzing' | 'incoming' | 'talking' | 'ended';
 
 export default function App() {
+  const STORAGE_KEY = 'talkativeCamera_personaId';
+
   const [state, setState] = useState<AppState>('setup');
-  const [age, setAge] = useState<number>(5);
+  const [personaId, setPersonaId] = useState<string>(
+    () => localStorage.getItem(STORAGE_KEY) ?? 'kinder'
+  );
   const [language, setLanguage] = useState<string>('日本語');
   const [photo, setPhoto] = useState<string | null>(null);
   const [character, setCharacter] = useState<CharacterProfile | null>(null);
@@ -28,6 +32,13 @@ export default function App() {
   const recorderRef = useRef<AudioRecorder | null>(null);
   const streamerRef = useRef<AudioStreamer | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const currentPersona: Persona = PERSONAS.find(p => p.id === personaId) ?? PERSONAS[1];
+
+  // Persist persona selection
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, personaId);
+  }, [personaId]);
 
   // Camera setup
   useEffect(() => {
@@ -128,7 +139,7 @@ export default function App() {
       if (!base64) throw new Error("Invalid image data");
       
       console.log("Starting analysis, image size:", Math.round(base64.length / 1024), "KB");
-      const profile = await analyzeObject(base64, age, language);
+      const profile = await analyzeObject(base64, currentPersona, language);
       setCharacter(profile);
       setState('incoming');
     } catch (err: any) {
@@ -153,7 +164,7 @@ export default function App() {
     });
 
     liveSessionRef.current = new GeminiLiveSession();
-    liveSessionRef.current.connect(character!, age, language, {
+    liveSessionRef.current.connect(character!, currentPersona, language, {
       onAudio: (base64) => streamerRef.current?.addPCM16(base64),
       onInterrupted: () => {
         // Handle interruption if needed
@@ -204,7 +215,10 @@ export default function App() {
 
   const handleTimeUp = () => {
     if (liveSessionRef.current) {
-      liveSessionRef.current.sendText("そろそろ電話を切る時間です。子供にバイバイと言って、可愛い言い訳をして電話を切ってください。");
+      const endMessage = currentPersona.isChild
+        ? "そろそろ電話を切る時間です。子供にバイバイと言って、可愛い言い訳をして電話を切ってください。"
+        : "そろそろ電話を切る時間です。会話を自然に締めくくり、別れの挨拶をして電話を切ってください。";
+      liveSessionRef.current.sendText(endMessage);
     }
     // Give a few seconds for the character to finish talking
     setTimeout(() => {
@@ -255,18 +269,43 @@ export default function App() {
             <div className="w-full max-w-xs space-y-6">
               <div className="space-y-3">
                 <label className="flex items-center text-sm font-medium text-orange-800">
-                  <User className="w-4 h-4 mr-2" /> なんさい？
+                  <User className="w-4 h-4 mr-2" /> だれが使う？
                 </label>
-                <div className="grid grid-cols-5 gap-2">
-                  {[3, 4, 5, 6, 7].map(n => (
-                    <button
-                      key={n}
-                      onClick={() => setAge(n)}
-                      className={`py-3 rounded-xl transition-all font-bold ${age === n ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-white/60 text-orange-900'}`}
-                    >
-                      {n}
-                    </button>
-                  ))}
+
+                {/* こどもセクション */}
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-orange-700 tracking-wide">👦 こども</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {PERSONAS.filter(p => p.isChild).map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => setPersonaId(p.id)}
+                        className={`py-3 px-1 rounded-xl transition-all flex flex-col items-center gap-1 ${personaId === p.id ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-white/60 text-orange-900'}`}
+                      >
+                        <span className="text-2xl">{p.emoji}</span>
+                        <span className="text-xs font-bold leading-tight">{p.label}</span>
+                        <span className="text-xs opacity-70">{p.ageRange}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* おとなセクション */}
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-orange-700 tracking-wide">🧑 おとな</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PERSONAS.filter(p => !p.isChild).map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => setPersonaId(p.id)}
+                        className={`py-3 px-1 rounded-xl transition-all flex flex-col items-center gap-1 ${personaId === p.id ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-white/60 text-orange-900'}`}
+                      >
+                        <span className="text-2xl">{p.emoji}</span>
+                        <span className="text-xs font-bold leading-tight">{p.label}</span>
+                        <span className="text-xs opacity-70">{p.ageRange}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -546,7 +585,11 @@ export default function App() {
               >
                 またね！
               </motion.h2>
-              <p className="text-white/90 text-lg">{character?.nickname}とおしゃべりできたね！</p>
+              <p className="text-white/90 text-lg">
+                {currentPersona.isChild
+                  ? `${character?.nickname}とおしゃべりできたね！`
+                  : `${character?.nickname}との会話、楽しめましたか？`}
+              </p>
             </div>
 
             <button

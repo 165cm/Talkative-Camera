@@ -1,20 +1,106 @@
+# 📸 おしゃべりカメラ / Talkative Camera
+
+> **Point your camera at anything — and it calls you back.**
+> カメラを向けるだけで、モノがキャラクターになって電話してくれる！
+
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+
+[![Live Demo](https://img.shields.io/badge/🌐_Live_Demo-GitHub_Pages-emerald?style=for-the-badge)](https://165cm.github.io/Talkative-Camera/)
+
 </div>
 
-# Run and deploy your AI Studio app
+---
 
-This contains everything you need to run your app locally.
+## ✨ What is this?
 
-View your app in AI Studio: https://ai.studio/apps/ade94965-80bc-4847-93e1-8b6291ff6666
+**Talkative Camera** is a magical AI app that turns everyday objects into talking characters.
+Snap a photo of anything — a cup, a toy, a piece of fruit — and that object comes to life as a unique character and calls you for a 100-second voice chat!
 
-## Run Locally
+**おしゃべりカメラ**は、カメラで撮ったモノをAIがキャラクターに変えて、音声通話してくれる不思議なアプリです。
 
-**Prerequisites:**  Node.js
+---
 
+## 🎯 Who is it for?
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+| シーン | 使い方 |
+|---|---|
+| 🍽️ 食事中の子ども | スマホを渡してYouTube代わりに。目の前のモノが話しかけてくれる！ |
+| 📚 小学生の学習 | 身の回りのモノについて、楽しく知識を深められる |
+| 🧠 大人の知的好奇心 | 目の前のモノの歴史・科学を深掘り |
+| 🌏 多言語家庭 | 英語・中国語・マレー語・タミル語・韓国語にも対応 |
+
+---
+
+## 🚀 How to Use / 使い方
+
+### Step 1 — 設定画面でキャラクターを選ぶ
+
+**だれが使う？** から選択：
+
+| ペルソナ | 対象 | AIの話し方 |
+|---|---|---|
+| 👶 ちびっこ | 2-3歳 | 超シンプル・短文・褒め多め |
+| 🌸 ようちえん | 4-6歳 | ひらがな中心・やさしい言葉 |
+| 🎒 しょうがくせい | 7-12歳 | 漢字も使う・本物の知識 |
+| 🧠 おとな | 大人 | 深い豆知識・歴史や科学の背景 |
+| 🔬 ガチ博士 | 専門知識を求める人 | 学術的・専門的な詳細解説 |
+
+**ことば** から言語を選択（6言語対応）：
+🇯🇵 日本語 / 🇺🇸 English / 🇲🇾 Bahasa Melayu / 🇨🇳 中文 / 🇮🇳 தமிழ் / 🇰🇷 한국어
+
+### Step 2 — 好きなものを撮影
+
+カメラ画面で、お気に入りのモノ・食べ物・おもちゃなどを映して
+大きなカメラボタンをタップ！
+
+### Step 3 — 着信に出る
+
+AIがキャラクターを生成して電話をかけてきます。
+緑の電話ボタンをタップして会話スタート！
+
+### Step 4 — 100秒間おしゃべり
+
+キャラクターと楽しく会話。タイマーが切れると、キャラクターが自然にバイバイしてくれます。
+
+> 💡 **前回の設定は自動で記憶されます。** 毎回設定しなくてOK！
+
+---
+
+## 🌐 Supported Languages
+
+| Language | Script / Difficulty Guidance |
+|---|---|
+| 🇯🇵 日本語 | ひらがな・漢字レベルで難易度を細かく制御 |
+| 🇺🇸 English | Vocabulary complexity adjusted per persona |
+| 🇲🇾 Bahasa Melayu | Vocabulary complexity adjusted per persona |
+| 🇨🇳 中文 | 汉字难度分级（简单汉字 → 复杂词汇） |
+| 🇮🇳 தமிழ் | Vocabulary complexity adjusted per persona |
+| 🇰🇷 한국어 | 어휘 난이도 페르소나별 조정 |
+
+---
+
+## ❓ よくある質問 / FAQ
+
+**Q. 子どもに安全ですか？**
+A. 会話は1回100秒で自動終了します。カメラ・マイクはブラウザ経由のみで使用し、データは送信後すぐ破棄されます。
+
+**Q. インターネット接続は必要ですか？**
+A. はい、Gemini APIへの接続が必要です。
+
+**Q. オフラインでは使えません。**
+A. 対応予定はありません（AI生成がサーバーサイドで動くため）。
+
+**Q. どのデバイスで使えますか？**
+A. カメラとマイクを持つスマートフォン・タブレット・PCのブラウザで動作します。Chrome推奨。
+
+---
+
+## 🔧 Self-hosting (for developers)
+
+→ See [DEVELOPER.md](DEVELOPER.md)
+
+---
+
+## 📄 License
+
+Apache 2.0 — see [LICENSE](LICENSE) file.
