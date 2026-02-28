@@ -240,7 +240,8 @@ export default function App() {
   };
 
   const reset = () => {
-    isEndingRef.current = false;
+    // isEndingRef はここでリセットしない。
+    // startCall() まで true のままにして、遅延する onClose を確実にブロックする。
     setState('setup');
     setPhoto(null);
     setCharacter(null);
@@ -346,30 +347,19 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <label className="flex items-center justify-between text-sm font-medium text-orange-800">
-                  <span className="flex items-center">
-                    <Globe className="w-4 h-4 mr-2" /> {t('setup.languageLabel', langCode)}
-                  </span>
-                  <button
-                    onClick={() => setState('language')}
-                    className="text-xs text-orange-600 underline"
-                  >
-                    {t('setup.changeLanguage', langCode)}
-                  </button>
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {LANGUAGES.map(l => (
-                    <button
-                      key={l.code}
-                      onClick={() => handleLanguageSelect(l)}
-                      className={`py-3 rounded-xl transition-all flex flex-col items-center justify-center space-y-1 ${language === l.label ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-white/60 text-orange-900'}`}
-                    >
-                      <span className="text-2xl">{l.flag}</span>
-                      <span className="text-xs">{l.label}</span>
-                    </button>
-                  ))}
-                </div>
+              {/* Language badge — compact, no redundant grid */}
+              <div className="flex items-center justify-between px-3 py-2 bg-white/40 rounded-xl">
+                <span className="flex items-center gap-2 text-sm text-orange-800">
+                  <Globe className="w-4 h-4" />
+                  {LANGUAGES.find(l => l.label === language)?.flag}{' '}
+                  <span className="font-medium">{language}</span>
+                </span>
+                <button
+                  onClick={() => setState('language')}
+                  className="text-xs text-orange-600 underline"
+                >
+                  {t('setup.changeLanguage', langCode)}
+                </button>
               </div>
 
               <button
