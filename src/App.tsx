@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Camera, Phone, PhoneOff, Settings, RefreshCw, User, Globe, Mic, MicOff } from 'lucide-react';
+import { Camera, Phone, PhoneOff, Settings, User, Globe } from 'lucide-react';
 import { analyzeObject, GeminiLiveSession, CharacterProfile } from './services/gemini';
 import { AudioRecorder, AudioStreamer } from './lib/audio';
 
@@ -18,8 +18,9 @@ export default function App() {
   const [photo, setPhoto] = useState<string | null>(null);
   const [character, setCharacter] = useState<CharacterProfile | null>(null);
   const [timeLeft, setTimeLeft] = useState<number>(100); // 100 seconds
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted] = useState(false);
   const [transcripts, setTranscripts] = useState<{speaker: 'user' | 'model', text: string, finished: boolean}[]>([]);
+  const [analysisError, setAnalysisError] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -132,9 +133,11 @@ export default function App() {
       setState('incoming');
     } catch (err: any) {
       console.error("Analysis failed:", err);
-      const errorMessage = err?.message || JSON.stringify(err);
-      alert(`ごめんね、うまく解析できなかったよ。もう一回撮ってみてね！\n(Error: ${errorMessage.substring(0, 100)})`);
-      setState('camera');
+      setAnalysisError(true);
+      setTimeout(() => {
+        setAnalysisError(false);
+        setState('camera');
+      }, 3000);
     }
   };
 
@@ -242,16 +245,16 @@ export default function App() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="flex-1 flex flex-col items-center justify-center p-6 space-y-8"
+            className="flex-1 flex flex-col items-center justify-center p-6 space-y-8 bg-gradient-to-b from-amber-200 to-orange-300"
           >
             <div className="text-center space-y-2">
-              <h1 className="text-4xl font-bold tracking-tight text-emerald-400">おしゃべりカメラ</h1>
-              <p className="text-neutral-400">モノと電話でお話ししよう！</p>
+              <h1 className="text-4xl font-bold tracking-tight text-emerald-700">おしゃべりカメラ</h1>
+              <p className="text-orange-700">モノと電話でお話ししよう！</p>
             </div>
 
             <div className="w-full max-w-xs space-y-6">
               <div className="space-y-3">
-                <label className="flex items-center text-sm font-medium text-neutral-300">
+                <label className="flex items-center text-sm font-medium text-orange-800">
                   <User className="w-4 h-4 mr-2" /> なんさい？
                 </label>
                 <div className="grid grid-cols-5 gap-2">
@@ -259,7 +262,7 @@ export default function App() {
                     <button
                       key={n}
                       onClick={() => setAge(n)}
-                      className={`py-3 rounded-xl transition-all ${age === n ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'bg-neutral-800 text-neutral-400'}`}
+                      className={`py-3 rounded-xl transition-all font-bold ${age === n ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-white/60 text-orange-900'}`}
                     >
                       {n}
                     </button>
@@ -268,7 +271,7 @@ export default function App() {
               </div>
 
               <div className="space-y-3">
-                <label className="flex items-center text-sm font-medium text-neutral-300">
+                <label className="flex items-center text-sm font-medium text-orange-800">
                   <Globe className="w-4 h-4 mr-2" /> ことば
                 </label>
                 <div className="grid grid-cols-3 gap-2">
@@ -276,7 +279,7 @@ export default function App() {
                     <button
                       key={l.code}
                       onClick={() => setLanguage(l.label)}
-                      className={`py-3 rounded-xl transition-all flex flex-col items-center justify-center space-y-1 ${language === l.label ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'bg-neutral-800 text-neutral-400'}`}
+                      className={`py-3 rounded-xl transition-all flex flex-col items-center justify-center space-y-1 ${language === l.label ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-white/60 text-orange-900'}`}
                     >
                       <span className="text-2xl">{l.flag}</span>
                       <span className="text-xs">{l.label}</span>
@@ -287,7 +290,7 @@ export default function App() {
 
               <button
                 onClick={() => setState('camera')}
-                className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-5 rounded-2xl shadow-xl shadow-emerald-500/20 transition-all active:scale-95"
+                className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-5 rounded-2xl shadow-xl shadow-emerald-500/30 transition-all active:scale-95 text-lg"
               >
                 はじめる！
               </button>
@@ -320,18 +323,26 @@ export default function App() {
                 >
                   <Settings className="w-6 h-6" />
                 </button>
-                <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-full text-sm font-medium">
-                  しゃべらせたいモノをうつしてね
+                <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-full text-sm font-medium flex items-center space-x-2">
+                  <span className="text-xl">📷</span>
+                  <span>すきなものをうつしてね</span>
                 </div>
               </div>
 
-              <div className="flex justify-center items-center pb-8">
+              <div className="flex flex-col items-center space-y-3 pb-8 pointer-events-auto">
+                <motion.div
+                  animate={{ y: [0, 8, 0] }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "easeInOut" }}
+                  className="text-3xl pointer-events-none select-none"
+                >
+                  👇
+                </motion.div>
                 <button
                   onClick={takePhoto}
-                  className="w-20 h-20 bg-white rounded-full border-8 border-neutral-300/50 flex items-center justify-center pointer-events-auto active:scale-90 transition-transform"
+                  className="w-24 h-24 bg-white rounded-full border-8 border-neutral-300/50 flex items-center justify-center active:scale-90 transition-transform"
                 >
-                  <div className="w-14 h-14 bg-emerald-500 rounded-full flex items-center justify-center">
-                    <Camera className="w-8 h-8 text-white" />
+                  <div className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center">
+                    <Camera className="w-9 h-9 text-white" />
                   </div>
                 </button>
               </div>
@@ -345,22 +356,51 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex-1 flex flex-col items-center justify-center p-6 space-y-8 bg-emerald-900"
+            className="flex-1 flex flex-col items-center justify-center p-6 space-y-8 bg-sky-400"
           >
-            <div className="relative">
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                className="w-32 h-32 border-4 border-emerald-400/20 border-t-emerald-400 rounded-full"
-              />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <RefreshCw className="w-10 h-10 text-emerald-400" />
-              </div>
-            </div>
-            <div className="text-center space-y-2">
-              <h2 className="text-2xl font-bold">だれかな？だれかな？</h2>
-              <p className="text-emerald-300/60">モノのなまえをかんがえちゅう...</p>
-            </div>
+            <AnimatePresence mode="wait">
+              {analysisError ? (
+                <motion.div
+                  key="error"
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="flex flex-col items-center space-y-4 text-center"
+                >
+                  <div className="text-8xl">😅</div>
+                  <h2 className="text-3xl font-bold text-white">あれ〜！</h2>
+                  <p className="text-white/80 text-lg">もういちどとってみてね！</p>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="loading"
+                  className="flex flex-col items-center space-y-8"
+                >
+                  <div className="flex space-x-4">
+                    {['✨', '🌟', '✨'].map((star, i) => (
+                      <motion.div
+                        key={i}
+                        animate={{ y: [0, -24, 0] }}
+                        transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.2, ease: "easeInOut" }}
+                        className="text-5xl"
+                      >
+                        {star}
+                      </motion.div>
+                    ))}
+                  </div>
+                  <motion.div
+                    animate={{ scale: [1, 1.1, 1], rotate: [-5, 5, -5] }}
+                    transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                    className="text-9xl select-none"
+                  >
+                    ❓
+                  </motion.div>
+                  <div className="text-center space-y-2">
+                    <h2 className="text-3xl font-bold text-white">だれかな？</h2>
+                    <p className="text-white/80 text-lg">まほうをかけちゅう...</p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
 
@@ -370,7 +410,7 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex-1 flex flex-col items-center justify-between p-12 bg-neutral-900"
+            className="flex-1 flex flex-col items-center justify-between p-12 bg-gradient-to-b from-violet-500 to-indigo-600"
           >
             <div className="text-center space-y-4 mt-12">
               <div className="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-emerald-500 shadow-2xl shadow-emerald-500/20 bg-white">
@@ -378,31 +418,25 @@ export default function App() {
               </div>
               <div className="space-y-1">
                 <h2 className="text-3xl font-bold">{character?.nickname}</h2>
-                <p className="text-sm text-neutral-400">（{character?.name}）</p>
-                <p className="text-emerald-400 font-medium animate-pulse">でんわがかかってきたよ！</p>
+                <p className="text-sm text-white/60">（{character?.name}）</p>
+                <p className="text-yellow-300 font-medium animate-pulse">でんわがかかってきたよ！</p>
               </div>
-              <div className="max-w-xs mx-auto bg-neutral-800/50 p-3 rounded-xl border border-white/5">
-                <p className="text-xs text-neutral-300">
-                  <span className="text-emerald-400 font-bold">まめちしき：</span>
+              <div className="max-w-xs mx-auto bg-white/20 p-3 rounded-xl border border-white/20">
+                <p className="text-xs text-white/90">
+                  <span className="text-yellow-300 font-bold">まめちしき：</span>
                   {character?.trivia}
                 </p>
               </div>
             </div>
 
-            <div className="w-full max-w-xs flex justify-around items-center mb-12">
-              <button
-                onClick={reset}
-                className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center shadow-lg shadow-red-500/20 active:scale-90 transition-transform"
-              >
-                <PhoneOff className="w-8 h-8 text-white" />
-              </button>
+            <div className="w-full max-w-xs flex justify-center items-center mb-12">
               <motion.button
-                animate={{ scale: [1, 1.1, 1] }}
-                transition={{ duration: 1, repeat: Infinity }}
+                animate={{ scale: [1, 1.08, 1] }}
+                transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
                 onClick={startCall}
-                className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center shadow-xl shadow-emerald-500/40 active:scale-90 transition-transform"
+                className="w-24 h-24 bg-emerald-500 rounded-full flex items-center justify-center shadow-2xl shadow-emerald-500/50 active:scale-90 transition-transform"
               >
-                <Phone className="w-10 h-10 text-white" />
+                <Phone className="w-12 h-12 text-white" />
               </motion.button>
             </div>
           </motion.div>
@@ -414,14 +448,18 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex-1 flex flex-col items-center justify-between p-8 bg-neutral-950"
+            className="flex-1 flex flex-col items-center justify-between p-8 bg-indigo-900"
           >
-            <div className="w-full flex justify-between items-center z-30">
-              <div className="bg-neutral-800 px-4 py-2 rounded-full text-sm font-mono text-emerald-400">
-                {timeLeft}
+            <div className="w-full flex flex-col items-center space-y-1 z-30">
+              <div className="text-white/70 text-sm font-bold">
+                {character?.nickname}とはなしちゅう
               </div>
-              <div className="text-neutral-500 text-xs uppercase tracking-widest font-bold">
-                Talking with {character?.nickname}
+              <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden">
+                <motion.div
+                  className="h-full bg-emerald-400 rounded-full"
+                  animate={{ width: `${(timeLeft / 100) * 100}%` }}
+                  transition={{ duration: 1, ease: "linear" }}
+                />
               </div>
             </div>
 
@@ -454,23 +492,17 @@ export default function App() {
               </div>
             </div>
 
-            <div className="w-full max-w-xs space-y-8 mb-8">
-              <div className="flex justify-center space-x-8">
-                <button
-                  onClick={() => setIsMuted(!isMuted)}
-                  className={`w-16 h-16 rounded-full flex items-center justify-center transition-colors ${isMuted ? 'bg-red-500/20 text-red-500' : 'bg-neutral-800 text-white'}`}
-                >
-                  {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-                </button>
+            <div className="w-full max-w-xs space-y-6 mb-8">
+              <div className="flex justify-center">
                 <button
                   onClick={endCall}
-                  className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center shadow-lg shadow-red-500/20 active:scale-90 transition-transform"
+                  className="w-20 h-20 bg-red-500 rounded-full flex items-center justify-center shadow-lg shadow-red-500/30 active:scale-90 transition-transform"
                 >
-                  <PhoneOff className="w-8 h-8 text-white" />
+                  <PhoneOff className="w-10 h-10 text-white" />
                 </button>
               </div>
               <div className="text-center">
-                <p className="text-neutral-400 text-sm italic">"{character?.catchphrase}"</p>
+                <p className="text-white/40 text-sm italic">"{character?.catchphrase}"</p>
               </div>
             </div>
           </motion.div>
@@ -482,21 +514,46 @@ export default function App() {
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            className="flex-1 flex flex-col items-center justify-center p-6 space-y-8"
+            className="flex-1 flex flex-col items-center justify-center p-6 space-y-6 bg-gradient-to-b from-emerald-400 to-teal-500 relative overflow-hidden"
           >
-            <div className="text-center space-y-4">
-              <div className="w-24 h-24 mx-auto bg-neutral-800 rounded-full flex items-center justify-center">
-                <PhoneOff className="w-10 h-10 text-neutral-500" />
-              </div>
-              <h2 className="text-3xl font-bold">またね！</h2>
-              <p className="text-neutral-400">{character?.nickname}とお話しできて楽しかったね！</p>
+            {['🎉', '⭐', '🎊', '💫', '🌟'].map((emoji, i) => (
+              <motion.div
+                key={i}
+                className="absolute text-4xl pointer-events-none select-none"
+                initial={{ y: 400, opacity: 0 }}
+                animate={{ y: -100, opacity: [0, 1, 1, 0] }}
+                transition={{ duration: 2.5, delay: i * 0.3, repeat: Infinity, repeatDelay: 1.5 }}
+                style={{ left: `${15 + i * 17}%` }}
+              >
+                {emoji}
+              </motion.div>
+            ))}
+
+            <div className="text-center space-y-4 z-10">
+              {character?.imageUrl && (
+                <motion.div
+                  animate={{ rotate: [-3, 3, -3] }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                  className="w-28 h-28 mx-auto rounded-full overflow-hidden border-4 border-white shadow-2xl bg-white"
+                >
+                  <img src={character.imageUrl} alt="Character" className="w-full h-full object-cover" />
+                </motion.div>
+              )}
+              <motion.h2
+                animate={{ scale: [1, 1.05, 1] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+                className="text-5xl font-bold text-white"
+              >
+                またね！
+              </motion.h2>
+              <p className="text-white/90 text-lg">{character?.nickname}とおしゃべりできたね！</p>
             </div>
 
             <button
               onClick={reset}
-              className="w-full max-w-xs bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-5 rounded-2xl shadow-xl shadow-emerald-500/20 transition-all active:scale-95"
+              className="z-10 w-full max-w-xs bg-white text-emerald-600 font-bold py-5 rounded-2xl shadow-xl transition-all active:scale-95 text-lg"
             >
-              もういちどあそぶ
+              もういちどあそぶ！
             </button>
           </motion.div>
         )}
