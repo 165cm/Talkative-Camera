@@ -23,11 +23,13 @@
 ```
 src/
 ├── App.tsx                  # メインコンポーネント・状態管理・UI全体
+├── i18n/
+│   └── translations.ts      # 多言語辞書（6言語 × 22キー）+ t() / getLangCode()
 ├── services/
 │   └── gemini.ts            # Gemini API呼び出し・ペルソナ定義・プロンプト生成
 └── lib/
     ├── audio.ts             # AudioRecorder / AudioStreamer (PCM16)
-    └── ...
+    └── usageTracker.ts      # 日次使用量カウンター（localStorage）
 ```
 
 ---
@@ -113,7 +115,10 @@ export const PERSONAS: Persona[] = [
 | kinder | ひらがな中心 | Simple vocab | 简单汉字 | 쉬운 단어 중심 | Simple vocab |
 | elementary | 小学校漢字OK | Moderate vocab | 稍复杂汉字 | 어느 정도 OK | Moderate vocab |
 
-新しい言語を追加する場合は `getVocabularyInstruction` に `if (isXX)` ブランチを追加し、`App.tsx` の `LANGUAGES` にエントリを追加してください。
+新しい言語を追加する場合は、以下の3箇所を更新してください：
+1. `getVocabularyInstruction` に `if (isXX)` ブランチを追加
+2. `App.tsx` の `LANGUAGES` にエントリを追加
+3. `src/i18n/translations.ts` の `translations` オブジェクトに新言語の全キーを追加
 
 ---
 
@@ -185,19 +190,23 @@ npm run build
 ## 🚦 アプリの状態遷移
 
 ```
-setup → camera → analyzing → incoming → talking → ended
-  ↑                                                  |
-  └──────────── reset() ─────────────────────────────┘
+language → setup → camera → analyzing → incoming → talking → ended
+  ↑           ↑                                               |
+  │           └──────────── reset() ─────────────────────────┘
+  └── setup画面の「変更」リンクからも遷移可
 ```
 
 | 状態 | 説明 |
 |---|---|
-| `setup` | ペルソナ・言語選択画面 |
+| `language` | 言語選択画面（初回起動時 or 「変更」リンク押下時） |
+| `setup` | ペルソナ・言語確認画面（言語選択済みの場合は最初から表示） |
 | `camera` | カメラプレビュー・撮影待ち |
 | `analyzing` | Gemini APIによる解析中 |
 | `incoming` | 着信風UI（緑ボタンで通話開始） |
 | `talking` | ライブ音声通話中（100秒タイマー） |
 | `ended` | 通話終了・再プレイボタン |
+
+選択した言語は `localStorage` に保存され、次回起動時は `setup` から始まります。
 
 ---
 
@@ -207,13 +216,15 @@ setup → camera → analyzing → incoming → talking → ended
 // ペルソナ定義
 interface Persona {
   id: string;
-  label: string;        // 表示名
+  label: string;                              // 日本語デフォルト表示名
   emoji: string;
-  ageRange: string;     // 表示用（「4-6歳」など）
-  ageNum: number;       // AIプロンプトに渡す数値年齢
-  promptHint: string;   // キャラクター生成プロンプトへの追加指示
-  isChild: boolean;     // true=こどもセクション、false=おとなセクション
-  sectionLabel: string; // UIグルーピング用
+  ageRange: string;                           // 日本語デフォルト年齢表示
+  ageNum: number;                             // AIプロンプトに渡す数値年齢
+  promptHint: string;                         // キャラクター生成プロンプトへの追加指示
+  isChild: boolean;                           // true=こどもセクション、false=おとなセクション
+  sectionLabel: string;                       // UIグルーピング用
+  localizedLabels: Record<string, string>;    // 言語ラベル → 表示名
+  localizedAgeRanges: Record<string, string>; // 言語ラベル → 年齢表示
 }
 
 // AIが生成するキャラクタープロフィール
@@ -228,3 +239,49 @@ interface CharacterProfile {
   imageUrl?: string;
 }
 ```
+
+---
+
+## 🌐 多言語対応（i18n）
+
+UIテキストは `src/i18n/translations.ts` で一元管理しています。
+
+```typescript
+import { t, getLangCode } from './i18n/translations';
+
+const langCode = getLangCode(language); // '日本語' → 'ja' などに変換
+t('setup.startButton', langCode);       // → 'はじめる！' / 'Let's Go!' など
+t('ended.messageChild', langCode, { name: 'コップくん' }); // {name} 置換
+```
+
+翻訳キーを追加する場合は `TranslationKey` 型に追記し、6言語すべてに値を設定してください。
+
+---
+
+## 📊 日次使用量制限
+
+一般公開に伴い、過剰利用を防ぐための簡易制限を実装しています。
+
+### 設定変更方法
+
+`src/lib/usageTracker.ts` の先頭定数を編集してください：
+
+```typescript
+export const MAX_SESSIONS_PER_DAY = 100;  // ← 1日の最大セッション数
+export const COST_PER_SESSION_YEN = 5;    // ← 1セッションあたりの概算コスト（円）
+```
+
+| 目安 | MAX_SESSIONS_PER_DAY |
+|---|---|
+| 〜200円/日 | 40 |
+| 〜500円/日 | 100 |
+| 〜1000円/日 | 200 |
+
+### 仕組み
+
+- 使用量は `localStorage` に `{ date, sessions, estimatedCostYen }` 形式で保存
+- 日付が変わると自動リセット
+- ホーム画面に小さく `🛠 Dev: Today X/100 (~X¥)` として表示（開発者確認用）
+- 上限到達時はスタートボタンがグレーアウトし、撮影がブロックされます
+
+> ⚠️ localStorage ベースのため、ブラウザのデータ削除で回避可能です。本格的な制限が必要な場合はサーバーサイドでの管理をご検討ください。

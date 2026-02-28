@@ -8,23 +8,38 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Camera, Phone, PhoneOff, Settings, User, Globe } from 'lucide-react';
 import { analyzeObject, GeminiLiveSession, CharacterProfile, Persona, PERSONAS } from './services/gemini';
 import { AudioRecorder, AudioStreamer } from './lib/audio';
+import { t, getLangCode, LangCode } from './i18n/translations';
+import { getUsageData, recordSession, isLimitReached, MAX_SESSIONS_PER_DAY } from './lib/usageTracker';
 
-type AppState = 'setup' | 'camera' | 'analyzing' | 'incoming' | 'talking' | 'ended';
+type AppState = 'language' | 'setup' | 'camera' | 'analyzing' | 'incoming' | 'talking' | 'ended';
+
+const STORAGE_KEY = 'talkativeCamera_personaId';
+const LANGUAGE_STORAGE_KEY = 'talkativeCamera_language';
+
+const LANGUAGES = [
+  { code: 'ja', label: '日本語', flag: '🇯🇵' },
+  { code: 'en', label: 'English', flag: '🇺🇸' },
+  { code: 'ms', label: 'Bahasa Melayu', flag: '🇲🇾' },
+  { code: 'zh', label: '中文', flag: '🇨🇳' },
+  { code: 'ta', label: 'தமிழ்', flag: '🇮🇳' },
+  { code: 'ko', label: '한국어', flag: '🇰🇷' },
+];
 
 export default function App() {
-  const STORAGE_KEY = 'talkativeCamera_personaId';
+  const savedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY) ?? '';
 
-  const [state, setState] = useState<AppState>('setup');
+  const [state, setState] = useState<AppState>(savedLanguage ? 'setup' : 'language');
   const [personaId, setPersonaId] = useState<string>(
     () => localStorage.getItem(STORAGE_KEY) ?? 'kinder'
   );
-  const [language, setLanguage] = useState<string>('日本語');
+  const [language, setLanguage] = useState<string>(savedLanguage);
   const [photo, setPhoto] = useState<string | null>(null);
   const [character, setCharacter] = useState<CharacterProfile | null>(null);
-  const [timeLeft, setTimeLeft] = useState<number>(100); // 100 seconds
+  const [timeLeft, setTimeLeft] = useState<number>(100);
   const [isMuted] = useState(false);
   const [transcripts, setTranscripts] = useState<{speaker: 'user' | 'model', text: string, finished: boolean}[]>([]);
   const [analysisError, setAnalysisError] = useState(false);
+  const [usageData, setUsageData] = useState(() => getUsageData());
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -32,8 +47,10 @@ export default function App() {
   const recorderRef = useRef<AudioRecorder | null>(null);
   const streamerRef = useRef<AudioStreamer | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const isEndingRef = useRef(false);
 
   const currentPersona: Persona = PERSONAS.find(p => p.id === personaId) ?? PERSONAS[1];
+  const langCode: LangCode = getLangCode(language);
 
   // Persist persona selection
   useEffect(() => {
@@ -52,20 +69,19 @@ export default function App() {
   const startCamera = async () => {
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("お使いのブラウザはカメラに対応していません。");
+        throw new Error("Camera not supported in this browser.");
       }
 
       let stream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: 'environment' } 
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
         });
       } catch (e) {
         console.warn("Environment camera failed, trying default", e);
         stream = await navigator.mediaDevices.getUserMedia({ video: true });
       }
-      
-      // Ensure videoRef is populated (might be delayed due to AnimatePresence)
+
       let attempts = 0;
       const attachStream = () => {
         if (videoRef.current) {
@@ -80,11 +96,11 @@ export default function App() {
           console.error("videoRef is still null after 1 second");
         }
       };
-      
+
       attachStream();
     } catch (err: any) {
       console.error("Error accessing camera:", err);
-      alert(`カメラにアクセスできませんでした。\n(${err.message || err})`);
+      alert(`Camera access failed.\n(${err.message || err})`);
     }
   };
 
@@ -101,30 +117,22 @@ export default function App() {
       const video = videoRef.current;
       const canvas = canvasRef.current;
       const context = canvas.getContext('2d');
-      
+
       if (context && video.videoWidth > 0) {
-        // Resize to max 1024px to ensure reliability
         const maxDim = 1024;
         let width = video.videoWidth;
         let height = video.videoHeight;
-        
+
         if (width > height) {
-          if (width > maxDim) {
-            height *= maxDim / width;
-            width = maxDim;
-          }
+          if (width > maxDim) { height *= maxDim / width; width = maxDim; }
         } else {
-          if (height > maxDim) {
-            width *= maxDim / height;
-            height = maxDim;
-          }
+          if (height > maxDim) { width *= maxDim / height; height = maxDim; }
         }
 
         canvas.width = width;
         canvas.height = height;
         context.drawImage(video, 0, 0, width, height);
-        
-        // Use a slightly lower quality to reduce payload size
+
         const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
         setPhoto(dataUrl);
         handleAnalysis(dataUrl);
@@ -133,13 +141,20 @@ export default function App() {
   };
 
   const handleAnalysis = async (imageData: string) => {
+    if (isLimitReached()) {
+      setState('setup');
+      return;
+    }
+
     setState('analyzing');
     try {
       const base64 = imageData.split(',')[1];
       if (!base64) throw new Error("Invalid image data");
-      
+
       console.log("Starting analysis, image size:", Math.round(base64.length / 1024), "KB");
       const profile = await analyzeObject(base64, currentPersona, language);
+      const updated = recordSession();
+      setUsageData(updated);
       setCharacter(profile);
       setState('incoming');
     } catch (err: any) {
@@ -153,9 +168,10 @@ export default function App() {
   };
 
   const startCall = () => {
+    isEndingRef.current = false;
     setState('talking');
     setTimeLeft(100);
-    
+
     streamerRef.current = new AudioStreamer();
     recorderRef.current = new AudioRecorder((base64) => {
       if (!isMuted && liveSessionRef.current) {
@@ -166,33 +182,25 @@ export default function App() {
     liveSessionRef.current = new GeminiLiveSession();
     liveSessionRef.current.connect(character!, currentPersona, language, {
       onAudio: (base64) => streamerRef.current?.addPCM16(base64),
-      onInterrupted: () => {
-        // Handle interruption if needed
-      },
+      onInterrupted: () => {},
       onTranscript: (speaker, text, isFinal, isDelta) => {
         setTranscripts(prev => {
           const newTranscripts = [...prev];
           const last = newTranscripts[newTranscripts.length - 1];
           if (last && last.speaker === speaker && !last.finished) {
-            if (isDelta) {
-              last.text += text;
-            } else {
-              last.text = text;
-            }
+            if (isDelta) { last.text += text; } else { last.text = text; }
             last.finished = isFinal;
           } else {
             newTranscripts.push({ speaker, text, finished: isFinal });
           }
-          return newTranscripts.slice(-5); // Keep last 5 messages
+          return newTranscripts.slice(-5);
         });
       },
       onTurnComplete: () => {
         setTranscripts(prev => {
           const newTranscripts = [...prev];
           const last = newTranscripts[newTranscripts.length - 1];
-          if (last && last.speaker === 'model') {
-            last.finished = true;
-          }
+          if (last && last.speaker === 'model') { last.finished = true; }
           return newTranscripts;
         });
       },
@@ -204,10 +212,7 @@ export default function App() {
 
     timerRef.current = setInterval(() => {
       setTimeLeft(prev => {
-        if (prev <= 1) {
-          handleTimeUp();
-          return 0;
-        }
+        if (prev <= 1) { handleTimeUp(); return 0; }
         return prev - 1;
       });
     }, 1000);
@@ -216,17 +221,17 @@ export default function App() {
   const handleTimeUp = () => {
     if (liveSessionRef.current) {
       const endMessage = currentPersona.isChild
-        ? "そろそろ電話を切る時間です。子供にバイバイと言って、可愛い言い訳をして電話を切ってください。"
-        : "そろそろ電話を切る時間です。会話を自然に締めくくり、別れの挨拶をして電話を切ってください。";
+        ? t('system.timeUpChild', langCode)
+        : t('system.timeUpAdult', langCode);
       liveSessionRef.current.sendText(endMessage);
     }
-    // Give a few seconds for the character to finish talking
-    setTimeout(() => {
-      endCall();
-    }, 10000);
+    setTimeout(() => { endCall(); }, 10000);
   };
 
   const endCall = () => {
+    if (isEndingRef.current) return;
+    isEndingRef.current = true;
+
     if (timerRef.current) clearInterval(timerRef.current);
     recorderRef.current?.stop();
     streamerRef.current?.stop();
@@ -235,24 +240,56 @@ export default function App() {
   };
 
   const reset = () => {
+    isEndingRef.current = false;
     setState('setup');
     setPhoto(null);
     setCharacter(null);
     setTranscripts([]);
+    setUsageData(getUsageData());
   };
 
-  const LANGUAGES = [
-    { code: 'ja', label: '日本語', flag: '🇯🇵' },
-    { code: 'en', label: 'English', flag: '🇺🇸' },
-    { code: 'ms', label: 'Bahasa Melayu', flag: '🇲🇾' },
-    { code: 'zh', label: '中文', flag: '🇨🇳' },
-    { code: 'ta', label: 'தமிழ்', flag: '🇮🇳' },
-    { code: 'ko', label: '한국어', flag: '🇰🇷' },
-  ];
+  const handleLanguageSelect = (lang: typeof LANGUAGES[0]) => {
+    setLanguage(lang.label);
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, lang.label);
+    setState('setup');
+  };
+
+  const limitReached = isLimitReached();
 
   return (
     <div className="min-h-screen bg-neutral-900 text-white font-sans overflow-hidden flex flex-col">
       <AnimatePresence mode="wait">
+
+        {/* ── LANGUAGE SELECTION ── */}
+        {state === 'language' && (
+          <motion.div
+            key="language"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="flex-1 flex flex-col items-center justify-center p-6 space-y-10 bg-gradient-to-b from-indigo-900 to-purple-900"
+          >
+            <div className="text-center space-y-3">
+              <div className="text-7xl">📸</div>
+              <h1 className="text-2xl font-bold text-white">言語を選んでください</h1>
+              <p className="text-purple-300 text-sm">Choose your language</p>
+            </div>
+            <div className="w-full max-w-xs grid grid-cols-3 gap-3">
+              {LANGUAGES.map(l => (
+                <button
+                  key={l.code}
+                  onClick={() => handleLanguageSelect(l)}
+                  className="py-6 rounded-2xl bg-white/10 hover:bg-white/20 flex flex-col items-center gap-2 transition-all active:scale-95"
+                >
+                  <span className="text-4xl">{l.flag}</span>
+                  <span className="text-xs text-white font-medium">{l.label}</span>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* ── SETUP ── */}
         {state === 'setup' && (
           <motion.div
             key="setup"
@@ -262,19 +299,19 @@ export default function App() {
             className="flex-1 flex flex-col items-center justify-center p-6 space-y-8 bg-gradient-to-b from-amber-200 to-orange-300"
           >
             <div className="text-center space-y-2">
-              <h1 className="text-4xl font-bold tracking-tight text-emerald-700">おしゃべりカメラ</h1>
-              <p className="text-orange-700">モノと電話でお話ししよう！</p>
+              <h1 className="text-4xl font-bold tracking-tight text-emerald-700">{t('setup.title', langCode)}</h1>
+              <p className="text-orange-700">{t('setup.subtitle', langCode)}</p>
             </div>
 
             <div className="w-full max-w-xs space-y-6">
               <div className="space-y-3">
                 <label className="flex items-center text-sm font-medium text-orange-800">
-                  <User className="w-4 h-4 mr-2" /> だれが使う？
+                  <User className="w-4 h-4 mr-2" /> {t('setup.whoLabel', langCode)}
                 </label>
 
-                {/* こどもセクション */}
+                {/* Kids section */}
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold text-orange-700 tracking-wide">👦 こども</p>
+                  <p className="text-xs font-semibold text-orange-700 tracking-wide">{t('setup.sectionKids', langCode)}</p>
                   <div className="grid grid-cols-3 gap-2">
                     {PERSONAS.filter(p => p.isChild).map(p => (
                       <button
@@ -283,16 +320,16 @@ export default function App() {
                         className={`py-3 px-1 rounded-xl transition-all flex flex-col items-center gap-1 ${personaId === p.id ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-white/60 text-orange-900'}`}
                       >
                         <span className="text-2xl">{p.emoji}</span>
-                        <span className="text-xs font-bold leading-tight">{p.label}</span>
-                        <span className="text-xs opacity-70">{p.ageRange}</span>
+                        <span className="text-xs font-bold leading-tight">{p.localizedLabels[language] ?? p.label}</span>
+                        <span className="text-xs opacity-70">{p.localizedAgeRanges[language] ?? p.ageRange}</span>
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {/* おとなセクション */}
+                {/* Adult section */}
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold text-orange-700 tracking-wide">🧑 おとな</p>
+                  <p className="text-xs font-semibold text-orange-700 tracking-wide">{t('setup.sectionAdult', langCode)}</p>
                   <div className="grid grid-cols-2 gap-2">
                     {PERSONAS.filter(p => !p.isChild).map(p => (
                       <button
@@ -301,8 +338,8 @@ export default function App() {
                         className={`py-3 px-1 rounded-xl transition-all flex flex-col items-center gap-1 ${personaId === p.id ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-white/60 text-orange-900'}`}
                       >
                         <span className="text-2xl">{p.emoji}</span>
-                        <span className="text-xs font-bold leading-tight">{p.label}</span>
-                        <span className="text-xs opacity-70">{p.ageRange}</span>
+                        <span className="text-xs font-bold leading-tight">{p.localizedLabels[language] ?? p.label}</span>
+                        <span className="text-xs opacity-70">{p.localizedAgeRanges[language] ?? p.ageRange}</span>
                       </button>
                     ))}
                   </div>
@@ -310,14 +347,22 @@ export default function App() {
               </div>
 
               <div className="space-y-3">
-                <label className="flex items-center text-sm font-medium text-orange-800">
-                  <Globe className="w-4 h-4 mr-2" /> ことば
+                <label className="flex items-center justify-between text-sm font-medium text-orange-800">
+                  <span className="flex items-center">
+                    <Globe className="w-4 h-4 mr-2" /> {t('setup.languageLabel', langCode)}
+                  </span>
+                  <button
+                    onClick={() => setState('language')}
+                    className="text-xs text-orange-600 underline"
+                  >
+                    {t('setup.changeLanguage', langCode)}
+                  </button>
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {LANGUAGES.map(l => (
                     <button
                       key={l.code}
-                      onClick={() => setLanguage(l.label)}
+                      onClick={() => handleLanguageSelect(l)}
                       className={`py-3 rounded-xl transition-all flex flex-col items-center justify-center space-y-1 ${language === l.label ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-white/60 text-orange-900'}`}
                     >
                       <span className="text-2xl">{l.flag}</span>
@@ -329,14 +374,21 @@ export default function App() {
 
               <button
                 onClick={() => setState('camera')}
-                className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-5 rounded-2xl shadow-xl shadow-emerald-500/30 transition-all active:scale-95 text-lg"
+                disabled={limitReached}
+                className={`w-full font-bold py-5 rounded-2xl shadow-xl transition-all active:scale-95 text-lg ${limitReached ? 'bg-neutral-400 text-neutral-600 cursor-not-allowed shadow-none' : 'bg-emerald-500 hover:bg-emerald-400 text-white shadow-emerald-500/30'}`}
               >
-                はじめる！
+                {limitReached ? t('setup.limitReached', langCode) : t('setup.startButton', langCode)}
               </button>
+
+              {/* Dev usage indicator */}
+              <p className={`text-xs font-mono text-center ${limitReached ? 'text-red-600' : 'text-orange-600/50'}`}>
+                🛠 Dev: Today {usageData.sessions}/{MAX_SESSIONS_PER_DAY} (~{usageData.estimatedCostYen}¥)
+              </p>
             </div>
           </motion.div>
         )}
 
+        {/* ── CAMERA ── */}
         {state === 'camera' && (
           <motion.div
             key="camera"
@@ -353,10 +405,10 @@ export default function App() {
               className="absolute inset-0 w-full h-full object-cover"
             />
             <canvas ref={canvasRef} className="hidden" />
-            
+
             <div className="absolute inset-0 flex flex-col justify-between p-8 pointer-events-none">
               <div className="flex justify-between items-start">
-                <button 
+                <button
                   onClick={() => setState('setup')}
                   className="p-3 bg-black/40 backdrop-blur-md rounded-full pointer-events-auto"
                 >
@@ -364,7 +416,7 @@ export default function App() {
                 </button>
                 <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-full text-sm font-medium flex items-center space-x-2">
                   <span className="text-xl">📷</span>
-                  <span>すきなものをうつしてね</span>
+                  <span>{t('camera.hint', langCode)}</span>
                 </div>
               </div>
 
@@ -389,6 +441,7 @@ export default function App() {
           </motion.div>
         )}
 
+        {/* ── ANALYZING ── */}
         {state === 'analyzing' && (
           <motion.div
             key="analyzing"
@@ -406,8 +459,8 @@ export default function App() {
                   className="flex flex-col items-center space-y-4 text-center"
                 >
                   <div className="text-8xl">😅</div>
-                  <h2 className="text-3xl font-bold text-white">あれ〜！</h2>
-                  <p className="text-white/80 text-lg">もういちどとってみてね！</p>
+                  <h2 className="text-3xl font-bold text-white">{t('analyzing.error.title', langCode)}</h2>
+                  <p className="text-white/80 text-lg">{t('analyzing.error.subtitle', langCode)}</p>
                 </motion.div>
               ) : (
                 <motion.div
@@ -434,8 +487,8 @@ export default function App() {
                     ❓
                   </motion.div>
                   <div className="text-center space-y-2">
-                    <h2 className="text-3xl font-bold text-white">だれかな？</h2>
-                    <p className="text-white/80 text-lg">まほうをかけちゅう...</p>
+                    <h2 className="text-3xl font-bold text-white">{t('analyzing.loading.title', langCode)}</h2>
+                    <p className="text-white/80 text-lg">{t('analyzing.loading.subtitle', langCode)}</p>
                   </div>
                 </motion.div>
               )}
@@ -443,6 +496,7 @@ export default function App() {
           </motion.div>
         )}
 
+        {/* ── INCOMING ── */}
         {state === 'incoming' && (
           <motion.div
             key="incoming"
@@ -458,11 +512,11 @@ export default function App() {
               <div className="space-y-1">
                 <h2 className="text-3xl font-bold">{character?.nickname}</h2>
                 <p className="text-sm text-white/60">（{character?.name}）</p>
-                <p className="text-yellow-300 font-medium animate-pulse">でんわがかかってきたよ！</p>
+                <p className="text-yellow-300 font-medium animate-pulse">{t('incoming.calling', langCode)}</p>
               </div>
               <div className="max-w-xs mx-auto bg-white/20 p-3 rounded-xl border border-white/20">
                 <p className="text-xs text-white/90">
-                  <span className="text-yellow-300 font-bold">まめちしき：</span>
+                  <span className="text-yellow-300 font-bold">{t('incoming.triviaLabel', langCode)}</span>
                   {character?.trivia}
                 </p>
               </div>
@@ -481,6 +535,7 @@ export default function App() {
           </motion.div>
         )}
 
+        {/* ── TALKING ── */}
         {state === 'talking' && (
           <motion.div
             key="talking"
@@ -491,7 +546,7 @@ export default function App() {
           >
             <div className="w-full flex flex-col items-center space-y-1 z-30">
               <div className="text-white/70 text-sm font-bold">
-                {character?.nickname}とはなしちゅう
+                {character?.nickname}{t('talking.withCharacter', langCode)}
               </div>
               <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden">
                 <motion.div
@@ -504,25 +559,22 @@ export default function App() {
 
             <div className="relative flex-1 flex items-center justify-center w-full">
               <div className="absolute inset-0 flex flex-col p-4 space-y-3 overflow-hidden z-20 pointer-events-none justify-end pb-8">
-                {transcripts.map((t, i) => (
+                {transcripts.map((t_item, i) => (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    key={i} 
-                    className={`flex ${t.speaker === 'user' ? 'justify-end' : 'justify-start'}`}
+                    key={i}
+                    className={`flex ${t_item.speaker === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
-                    <div className={`max-w-[85%] px-4 py-2 rounded-2xl text-sm backdrop-blur-md ${t.speaker === 'user' ? 'bg-emerald-500/80 text-white rounded-br-sm' : 'bg-white/80 text-neutral-900 rounded-bl-sm shadow-lg'}`}>
-                      {t.text}
+                    <div className={`max-w-[85%] px-4 py-2 rounded-2xl text-sm backdrop-blur-md ${t_item.speaker === 'user' ? 'bg-emerald-500/80 text-white rounded-br-sm' : 'bg-white/80 text-neutral-900 rounded-bl-sm shadow-lg'}`}>
+                      {t_item.text}
                     </div>
                   </motion.div>
                 ))}
               </div>
-              
+
               <motion.div
-                animate={{ 
-                  scale: [1, 1.05, 1],
-                  opacity: [0.3, 0.6, 0.3]
-                }}
+                animate={{ scale: [1, 1.05, 1], opacity: [0.3, 0.6, 0.3] }}
                 transition={{ duration: 2, repeat: Infinity }}
                 className="absolute w-64 h-64 bg-emerald-500/20 rounded-full blur-3xl"
               />
@@ -547,6 +599,7 @@ export default function App() {
           </motion.div>
         )}
 
+        {/* ── ENDED ── */}
         {state === 'ended' && (
           <motion.div
             key="ended"
@@ -583,12 +636,12 @@ export default function App() {
                 transition={{ duration: 1.5, repeat: Infinity }}
                 className="text-5xl font-bold text-white"
               >
-                またね！
+                {t('ended.goodbye', langCode)}
               </motion.h2>
               <p className="text-white/90 text-lg">
                 {currentPersona.isChild
-                  ? `${character?.nickname}とおしゃべりできたね！`
-                  : `${character?.nickname}との会話、楽しめましたか？`}
+                  ? t('ended.messageChild', langCode, { name: character?.nickname ?? '' })
+                  : t('ended.messageAdult', langCode, { name: character?.nickname ?? '' })}
               </p>
             </div>
 
@@ -596,10 +649,11 @@ export default function App() {
               onClick={reset}
               className="z-10 w-full max-w-xs bg-white text-emerald-600 font-bold py-5 rounded-2xl shadow-xl transition-all active:scale-95 text-lg"
             >
-              もういちどあそぶ！
+              {t('ended.playAgain', langCode)}
             </button>
           </motion.div>
         )}
+
       </AnimatePresence>
     </div>
   );

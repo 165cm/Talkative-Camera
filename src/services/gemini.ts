@@ -20,14 +20,101 @@ export interface Persona {
   promptHint: string;
   isChild: boolean;
   sectionLabel: string;
+  localizedLabels: Record<string, string>;
+  localizedAgeRanges: Record<string, string>;
 }
 
 export const PERSONAS: Persona[] = [
-  { id: 'tiny',       label: 'ちびっこ',       emoji: '👶', ageRange: '2-3歳',  ageNum: 3,  isChild: true,  sectionLabel: 'こども', promptHint: '超シンプルな言葉のみ。1〜2語の短い文。たくさん褒める。' },
-  { id: 'kinder',     label: 'ようちえん',     emoji: '🌸', ageRange: '4-6歳',  ageNum: 5,  isChild: true,  sectionLabel: 'こども', promptHint: 'ひらがな中心、やさしい言葉、明るく楽しい雰囲気。' },
-  { id: 'elementary', label: 'しょうがくせい', emoji: '🎒', ageRange: '7-12歳', ageNum: 10, isChild: true,  sectionLabel: 'こども', promptHint: '漢字も少し使ってOK。本物の知識を楽しく伝える。' },
-  { id: 'adult',      label: 'おとな',         emoji: '🧠', ageRange: '大人',   ageNum: 30, isChild: false, sectionLabel: 'おとな', promptHint: '知的好奇心旺盛な大人向け。深い豆知識、歴史・科学的背景を重視。' },
-  { id: 'expert',     label: 'ガチ博士',       emoji: '🔬', ageRange: '専門家', ageNum: 35, isChild: false, sectionLabel: 'おとな', promptHint: '専門的・学術的。詳細なメカニズムと正確な用語を使う。' },
+  {
+    id: 'tiny',
+    label: 'ちびっこ',
+    emoji: '👶',
+    ageRange: '2-3歳',
+    ageNum: 3,
+    isChild: true,
+    sectionLabel: 'こども',
+    promptHint: '超シンプルな言葉のみ。1〜2語の短い文。たくさん褒める。',
+    localizedLabels: {
+      '日本語': 'ちびっこ', 'English': 'Tiny', 'Bahasa Melayu': 'Si Kecil',
+      '中文': '宝贝', 'தமிழ்': 'குழந்தை', '한국어': '아기',
+    },
+    localizedAgeRanges: {
+      '日本語': '2-3歳', 'English': '2-3 yrs', 'Bahasa Melayu': '2-3 thn',
+      '中文': '2-3岁', 'தமிழ்': '2-3 வயது', '한국어': '2-3세',
+    },
+  },
+  {
+    id: 'kinder',
+    label: 'ようちえん',
+    emoji: '🌸',
+    ageRange: '4-6歳',
+    ageNum: 5,
+    isChild: true,
+    sectionLabel: 'こども',
+    promptHint: 'ひらがな中心、やさしい言葉、明るく楽しい雰囲気。',
+    localizedLabels: {
+      '日本語': 'ようちえん', 'English': 'Kinder', 'Bahasa Melayu': 'Tadika',
+      '中文': '幼儿园', 'தமிழ்': 'மழலையர்', '한국어': '유치원',
+    },
+    localizedAgeRanges: {
+      '日本語': '4-6歳', 'English': '4-6 yrs', 'Bahasa Melayu': '4-6 thn',
+      '中文': '4-6岁', 'தமிழ்': '4-6 வயது', '한국어': '4-6세',
+    },
+  },
+  {
+    id: 'elementary',
+    label: 'しょうがくせい',
+    emoji: '🎒',
+    ageRange: '7-12歳',
+    ageNum: 10,
+    isChild: true,
+    sectionLabel: 'こども',
+    promptHint: '漢字も少し使ってOK。本物の知識を楽しく伝える。',
+    localizedLabels: {
+      '日本語': 'しょうがくせい', 'English': 'Elementary', 'Bahasa Melayu': 'Sekolah',
+      '中文': '小学生', 'தமிழ்': 'பள்ளி', '한국어': '초등학생',
+    },
+    localizedAgeRanges: {
+      '日本語': '7-12歳', 'English': '7-12 yrs', 'Bahasa Melayu': '7-12 thn',
+      '中文': '7-12岁', 'தமிழ்': '7-12 வயது', '한국어': '7-12세',
+    },
+  },
+  {
+    id: 'adult',
+    label: 'おとな',
+    emoji: '🧠',
+    ageRange: '大人',
+    ageNum: 30,
+    isChild: false,
+    sectionLabel: 'おとな',
+    promptHint: '知的好奇心旺盛な大人向け。深い豆知識、歴史・科学的背景を重視。',
+    localizedLabels: {
+      '日本語': 'おとな', 'English': 'Adult', 'Bahasa Melayu': 'Dewasa',
+      '中文': '大人', 'தமிழ்': 'பெரியவர்', '한국어': '어른',
+    },
+    localizedAgeRanges: {
+      '日本語': '大人', 'English': 'Adult', 'Bahasa Melayu': 'Dewasa',
+      '中文': '大人', 'தமிழ்': 'பெரியவர்', '한국어': '어른',
+    },
+  },
+  {
+    id: 'expert',
+    label: 'ガチ博士',
+    emoji: '🔬',
+    ageRange: '専門家',
+    ageNum: 35,
+    isChild: false,
+    sectionLabel: 'おとな',
+    promptHint: '専門的・学術的。詳細なメカニズムと正確な用語を使う。',
+    localizedLabels: {
+      '日本語': 'ガチ博士', 'English': 'Expert', 'Bahasa Melayu': 'Pakar',
+      '中文': '专家', 'தமிழ்': 'நிபுணர்', '한국어': '전문가',
+    },
+    localizedAgeRanges: {
+      '日本語': '専門家', 'English': 'Expert', 'Bahasa Melayu': 'Pakar',
+      '中文': '专家', 'தமிழ்': 'நிபுணர்', '한국어': '전문가',
+    },
+  },
 ];
 
 export async function analyzeObject(base64Image: string, persona: Persona, language: string): Promise<CharacterProfile> {
@@ -82,7 +169,7 @@ export async function analyzeObject(base64Image: string, persona: Persona, langu
 
   const text = response.text;
   if (!text) throw new Error("No response from AI");
-  
+
   let profile: any;
   try {
     profile = JSON.parse(text);
@@ -183,7 +270,11 @@ ${language}で話してください。
 ${getVocabularyInstruction('tiny', language)}
 ・褒め言葉をたくさん使う（すごい！えらい！じょうず！など、その言語に合った表現で）。
 ・ゆっくり、はっきり話す。
-・子供が返事しなくても、楽しく話しかけ続ける。`;
+・子供が返事しなくても、楽しく話しかけ続ける。
+
+【返答の長さ】
+・1回の返答は最大1文のみ。
+・話し終わったら、必ず相手の返事を待つこと。続けて話し続けない。`;
   }
 
   if (persona.id === 'kinder') {
@@ -193,7 +284,11 @@ ${getVocabularyInstruction('tiny', language)}
 ${getVocabularyInstruction('kinder', language)}
 ・やさしく、たのしく、明るい雰囲気で話す。
 ・子供が喜ぶような質問を交える（好きなもの、知ってるかな？など）。
-・褒め言葉を適度に使う。`;
+・褒め言葉を適度に使う。
+
+【返答の長さ】
+・1回の返答は最大1〜2文のみ。
+・話し終わったら、必ず相手の返事を待つこと。続けて話し続けない。`;
   }
 
   if (persona.id === 'elementary') {
@@ -203,7 +298,11 @@ ${getVocabularyInstruction('kinder', language)}
 ${getVocabularyInstruction('elementary', language)}
 ・本物の知識（科学・歴史・自然など）を楽しく教える。
 ・「実はね」「知ってた？」など好奇心を引き出す語りかけをする。
-・子供と対等に話す。過度に子供扱いしない。`;
+・子供と対等に話す。過度に子供扱いしない。
+
+【返答の長さ】
+・1回の返答は最大2〜3文のみ。
+・話し終わったら、必ず相手の返事を待つこと。続けて話し続けない。`;
   }
 
   if (persona.id === 'adult') {
@@ -214,7 +313,11 @@ ${getVocabularyInstruction('elementary', language)}
 ・知的好奇心を刺激する深い話題を提供する。
 ・歴史的背景、科学的な仕組み、意外な事実など「へぇ！」となる豆知識を積極的に展開する。
 ・会話を通じて知識が広がる体験を提供する。
-・子供向けの過度な簡略化はしない。`;
+・子供向けの過度な簡略化はしない。
+
+【返答の長さ】
+・1回の返答は3〜4文程度。深みを持たせつつ、相手が返事できる余地を残す。
+・話し終わったら、必ず相手の返事を待つこと。続けて話し続けない。`;
   }
 
   if (persona.id === 'expert') {
@@ -225,7 +328,11 @@ ${getVocabularyInstruction('elementary', language)}
 ・学術的・専門的な用語を適切に使用する。
 ・詳細なメカニズム、正確な数値・名称・プロセスなど正確な情報を提供する。
 ・「正確には〜」「学術的に言うと〜」などの表現を自然に使う。
-・専門知識を深掘りする方向に会話を導く。`;
+・専門知識を深掘りする方向に会話を導く。
+
+【返答の長さ】
+・1回の返答は3〜5文程度。詳細な説明を含めつつ、相手が返事できる余地を残す。
+・話し終わったら、必ず相手の返事を待つこと。続けて話し続けない。`;
   }
 
   return base;
@@ -264,7 +371,7 @@ export class GeminiLiveSession {
         onopen: () => console.log("Live session opened"),
         onmessage: async (message: LiveServerMessage) => {
           console.log("Live message received:", message);
-          
+
           if (message.serverContent?.modelTurn) {
             for (const part of message.serverContent.modelTurn.parts) {
               if (part.inlineData?.data) {
@@ -272,18 +379,18 @@ export class GeminiLiveSession {
               }
             }
           }
-          
+
           if (message.serverContent?.turnComplete) {
             callbacks.onTurnComplete();
           }
-          
+
           if (message.serverContent?.inputTranscription?.text) {
             callbacks.onTranscript('user', message.serverContent.inputTranscription.text, !!message.serverContent.inputTranscription.finished, true);
           }
           if (message.serverContent?.outputTranscription?.text) {
             callbacks.onTranscript('model', message.serverContent.outputTranscription.text, !!message.serverContent.outputTranscription.finished, true);
           }
-          
+
           if (message.serverContent?.interrupted) {
             console.log("Live session interrupted");
             callbacks.onInterrupted();
