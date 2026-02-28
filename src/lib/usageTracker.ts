@@ -4,7 +4,7 @@
  */
 
 const USAGE_STORAGE_KEY = 'talkativeCamera_usage';
-export const MAX_SESSIONS_PER_DAY = 100;  // ~500¥/day at 5¥/session
+export const MAX_SESSIONS_PER_DAY = 20;  // ~100¥/day at 5¥/session
 export const COST_PER_SESSION_YEN = 5;    // ≈ $0.03-0.04 per session at 150¥/$
 
 interface UsageData {
