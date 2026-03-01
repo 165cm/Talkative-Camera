@@ -154,6 +154,25 @@ idle ──────────────────► listening
 
 ブラウザの言語別ボイスは `getBrowserVoice()` で `getLangCode()` の言語プレフィックスにマッチする最初のボイスを選択します。
 
+`getBrowserVoice()` は **`async` 関数**です。ブラウザによっては `getVoices()` が最初の呼び出しで空配列を返すため、`voiceschanged` イベントを最大1秒待機してから再取得します。
+
+```typescript
+private async getBrowserVoice(): Promise<SpeechSynthesisVoice | null> {
+  let voices = window.speechSynthesis.getVoices();
+  if (voices.length === 0) {
+    await new Promise<void>(resolve => {
+      window.speechSynthesis.addEventListener('voiceschanged', () => resolve(), { once: true });
+      setTimeout(resolve, 1000); // 最大1秒待機
+    });
+    voices = window.speechSynthesis.getVoices();
+  }
+  // 言語プレフィックスにマッチする最初のボイスを返す
+  const langPrefix = this.getLangCode().substring(0, 2);
+  const langVoices = voices.filter(v => v.lang.toLowerCase().startsWith(langPrefix));
+  return langVoices[0] || voices[0] || null;
+}
+```
+
 ### autoplay と SpeechSynthesis のアンロック
 
 **問題**: `SpeechSynthesis.speak()` も非同期コールバック内からの呼び出しはブラウザによってブロックされる場合があります。
@@ -269,7 +288,9 @@ npm run lint     # TypeScriptエラーチェック
 
 | シークレット名 | 値 | 用途 |
 |---|---|---|
-| `GEMINI_API_KEY` | Google AI Studio のAPIキー | Gemini API（テキスト生成・画像生成） |
+| `GEMINI_API_KEY` | Google AI Studio のAPIキー | Gemini API（キャラクター生成・画像生成・テキスト応答） |
+
+> 以前の構成で `OPENAI_API_KEY` を設定していた場合は削除してかまいません。OpenAI TTS は廃止され、現在はブラウザ SpeechSynthesis API を使用しています。
 
 3. GitHub リポジトリ → **Settings → Pages** → Source: `GitHub Actions` に設定
 
@@ -282,6 +303,22 @@ npm run lint     # TypeScriptエラーチェック
 | `GEMINI_API_KEY` | ✅ | Gemini API（キャラクター生成・画像生成・テキスト応答） |
 
 **重要**: これらのキーは Vite の `define` により**クライアントサイドのバンドルに埋め込まれます**。本番運用でキー漏洩を防ぎたい場合は、バックエンドプロキシ（Cloudflare Workers / Vercel Functions 等）の導入を検討してください。
+
+#### ⚠️ Vite ビルドと環境変数の扱いについて
+
+`vite.config.ts` では `loadEnv()` と `process.env` の両方にフォールバックしています：
+
+```typescript
+// vite.config.ts
+define: {
+  'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || process.env.GEMINI_API_KEY),
+}
+```
+
+- **ローカル開発**: `.env.local` ファイルから `env.GEMINI_API_KEY` が読まれます
+- **GitHub Actions**: `env:` ブロックの値が `process.env` に入るため、`loadEnv()` が `.env` ファイルを見つけられなくてもフォールバックで正しく埋め込まれます
+
+> `loadEnv()` は `.env*` ファイルのみを参照し、`process.env` を直接参照しない点に注意してください。フォールバックがないと、CI環境でAPIキーが `"undefined"` としてバンドルされ、本番環境でAIの返答が来ない原因になります。
 
 ---
 

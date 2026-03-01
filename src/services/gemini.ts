@@ -369,9 +369,15 @@ export class ChatSession {
     return map[this.language] || 'en-US';
   }
 
-  private getBrowserVoice(): SpeechSynthesisVoice | null {
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length === 0) return null;
+  private async getBrowserVoice(): Promise<SpeechSynthesisVoice | null> {
+    let voices = window.speechSynthesis.getVoices();
+    if (voices.length === 0) {
+      await new Promise<void>(resolve => {
+        window.speechSynthesis.addEventListener('voiceschanged', () => resolve(), { once: true });
+        setTimeout(resolve, 1000);
+      });
+      voices = window.speechSynthesis.getVoices();
+    }
     const langPrefix = this.getLangCode().substring(0, 2);
     const langVoices = voices.filter(v => v.lang.toLowerCase().startsWith(langPrefix));
     return langVoices[0] || voices[0] || null;
@@ -414,7 +420,7 @@ export class ChatSession {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(responseText);
       utterance.lang = this.getLangCode();
-      const voice = this.getBrowserVoice();
+      const voice = await this.getBrowserVoice();
       if (voice) utterance.voice = voice;
       const { pitch, rate } = this.getVoiceParams();
       utterance.pitch = pitch;
