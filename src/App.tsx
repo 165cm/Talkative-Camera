@@ -6,8 +6,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Camera, Phone, PhoneOff, Settings, User, Globe } from 'lucide-react';
-import { analyzeObject, GeminiLiveSession, CharacterProfile, Persona, PERSONAS } from './services/gemini';
-import { AudioRecorder, AudioStreamer } from './lib/audio';
+import { analyzeObject, ChatSession, CharacterProfile, Persona, PERSONAS } from './services/gemini';
 import { t, getLangCode, LangCode } from './i18n/translations';
 import { getUsageData, recordSession, isLimitReached, MAX_SESSIONS_PER_DAY } from './lib/usageTracker';
 
@@ -37,15 +36,15 @@ export default function App() {
   const [character, setCharacter] = useState<CharacterProfile | null>(null);
   const [timeLeft, setTimeLeft] = useState<number>(100);
   const [isMuted] = useState(false);
-  const [transcripts, setTranscripts] = useState<{speaker: 'user' | 'model', text: string, finished: boolean}[]>([]);
+  const [transcripts, setTranscripts] = useState<{ speaker: 'user' | 'model', text: string, finished: boolean }[]>([]);
   const [analysisError, setAnalysisError] = useState(false);
   const [usageData, setUsageData] = useState(() => getUsageData());
+  const [callState, setCallState] = useState<'idle' | 'listening' | 'processing' | 'speaking'>('idle');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const liveSessionRef = useRef<GeminiLiveSession | null>(null);
-  const recorderRef = useRef<AudioRecorder | null>(null);
-  const streamerRef = useRef<AudioStreamer | null>(null);
+  const chatSessionRef = useRef<ChatSession | null>(null);
+  const recognitionRef = useRef<any>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const isEndingRef = useRef(false);
 
@@ -171,19 +170,43 @@ export default function App() {
     isEndingRef.current = false;
     setState('talking');
     setTimeLeft(100);
+    setCallState('idle');
 
-    streamerRef.current = new AudioStreamer();
-    recorderRef.current = new AudioRecorder((base64) => {
-      if (!isMuted && liveSessionRef.current) {
-        liveSessionRef.current.sendAudio(base64);
-      }
-    });
+    // Initialize Web Speech API
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      const langMapping: Record<LangCode, string> = {
+        'ja': 'ja-JP', 'en': 'en-US', 'ms': 'ms-MY', 'zh': 'zh-CN', 'ko': 'ko-KR', 'ta': 'ta-IN'
+      };
+      recognition.lang = langMapping[langCode] || 'en-US';
+      recognition.interimResults = false;
+      recognition.continuous = false;
 
-    liveSessionRef.current = new GeminiLiveSession();
-    liveSessionRef.current.connect(character!, currentPersona, language, {
-      onAudio: (base64) => streamerRef.current?.addPCM16(base64),
-      onInterrupted: () => {},
-      onTranscript: (speaker, text, isFinal, isDelta) => {
+      recognition.onresult = (event: any) => {
+        const text = event.results[0][0].transcript;
+        if (text && chatSessionRef.current) {
+          setCallState('processing');
+          chatSessionRef.current.sendText(text);
+        } else {
+          setCallState('idle');
+        }
+      };
+
+      recognition.onerror = (e: any) => {
+        console.error("Speech recognition error", e);
+        setCallState('idle');
+      };
+
+      recognition.onend = () => {
+        setCallState(prev => prev === 'listening' ? 'idle' : prev);
+      };
+
+      recognitionRef.current = recognition;
+    }
+
+    chatSessionRef.current = new ChatSession(character!, currentPersona, language, {
+      onTranscript: (speaker: 'user' | 'model', text: string, isFinal: boolean, isDelta: boolean) => {
         setTranscripts(prev => {
           const newTranscripts = [...prev];
           const last = newTranscripts[newTranscripts.length - 1];
@@ -195,20 +218,19 @@ export default function App() {
           }
           return newTranscripts.slice(-5);
         });
+
+        if (speaker === 'model' && isFinal) {
+          setCallState('speaking');
+        }
       },
       onTurnComplete: () => {
-        setTranscripts(prev => {
-          const newTranscripts = [...prev];
-          const last = newTranscripts[newTranscripts.length - 1];
-          if (last && last.speaker === 'model') { last.finished = true; }
-          return newTranscripts;
-        });
+        setCallState('idle');
       },
-      onClose: () => endCall(),
-      onError: (err) => console.error("Live session error:", err),
+      onError: (err: any) => {
+        console.error("ChatSession error:", err);
+        setCallState('idle');
+      }
     });
-
-    recorderRef.current.start();
 
     timerRef.current = setInterval(() => {
       setTimeLeft(prev => {
@@ -219,11 +241,11 @@ export default function App() {
   };
 
   const handleTimeUp = () => {
-    if (liveSessionRef.current) {
+    if (chatSessionRef.current) {
       const endMessage = currentPersona.isChild
         ? t('system.timeUpChild', langCode)
         : t('system.timeUpAdult', langCode);
-      liveSessionRef.current.sendText(endMessage);
+      chatSessionRef.current.sendText(endMessage);
     }
     setTimeout(() => { endCall(); }, 10000);
   };
@@ -233,9 +255,8 @@ export default function App() {
     isEndingRef.current = true;
 
     if (timerRef.current) clearInterval(timerRef.current);
-    recorderRef.current?.stop();
-    streamerRef.current?.stop();
-    liveSessionRef.current?.close();
+    if (recognitionRef.current) recognitionRef.current.stop();
+    chatSessionRef.current?.close();
     setState('ended');
   };
 
@@ -574,15 +595,46 @@ export default function App() {
             </div>
 
             <div className="w-full max-w-xs space-y-6 mb-8">
-              <div className="flex justify-center">
+              <div className="flex justify-center space-x-6">
+                <button
+                  onPointerDown={() => {
+                    if (recognitionRef.current && callState === 'idle') {
+                      try {
+                        recognitionRef.current.start();
+                        setCallState('listening');
+                      } catch (e) {
+                        console.error(e);
+                      }
+                    }
+                  }}
+                  onPointerUp={() => {
+                    if (recognitionRef.current && callState === 'listening') {
+                      recognitionRef.current.stop();
+                    }
+                  }}
+                  onPointerLeave={() => {
+                    if (recognitionRef.current && callState === 'listening') {
+                      recognitionRef.current.stop();
+                    }
+                  }}
+                  className={`w-20 h-20 rounded-full flex items-center justify-center shadow-lg transition-transform ${callState === 'listening' ? 'bg-indigo-400 scale-110' : 'bg-emerald-500 active:scale-95'}`}
+                >
+                  <Phone className={`w-10 h-10 ${callState === 'listening' ? 'text-indigo-900 animate-pulse' : 'text-white'}`} />
+                </button>
                 <button
                   onClick={endCall}
-                  className="w-20 h-20 bg-red-500 rounded-full flex items-center justify-center shadow-lg shadow-red-500/30 active:scale-90 transition-transform"
+                  className="w-20 h-20 bg-neutral-600 rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-transform"
                 >
                   <PhoneOff className="w-10 h-10 text-white" />
                 </button>
               </div>
               <div className="text-center">
+                <p className="text-white/80 font-bold mb-2">
+                  {callState === 'idle' ? 'おして話す📱 / Hold to talk' :
+                    callState === 'listening' ? '聞いています👂...' :
+                      callState === 'processing' ? '考えています🤔...' :
+                        '話しています👄...'}
+                </p>
                 <p className="text-white/40 text-sm italic">"{character?.catchphrase}"</p>
               </div>
             </div>

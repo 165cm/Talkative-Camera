@@ -1,4 +1,5 @@
-import { GoogleGenAI, Modality, LiveServerMessage } from "@google/genai";
+import { GoogleGenAI, Modality, Content } from "@google/genai";
+import OpenAI from "openai";
 
 export interface CharacterProfile {
   name: string;
@@ -338,101 +339,105 @@ ${getVocabularyInstruction('elementary', language)}
   return base;
 }
 
-export class GeminiLiveSession {
+export class ChatSession {
   private ai: GoogleGenAI;
-  private sessionPromise: Promise<any> | null = null;
-
-  constructor() {
-    this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-  }
-
-  connect(profile: CharacterProfile, persona: Persona, language: string, callbacks: {
-    onAudio: (base64: string) => void;
-    onInterrupted: () => void;
+  private openai: OpenAI;
+  private history: Content[] = [];
+  private systemInstruction: string;
+  private profile: CharacterProfile;
+  private callbacks: {
     onTranscript: (speaker: 'user' | 'model', text: string, isFinal: boolean, isDelta: boolean) => void;
     onTurnComplete: () => void;
-    onClose: () => void;
     onError: (err: any) => void;
-  }) {
-    const systemInstruction = buildSystemInstruction(profile, persona, language);
+  };
+  private currentAudioUrl: string | null = null;
+  private currentAudioElement: HTMLAudioElement | null = null;
+  public isActive: boolean = true;
 
-    this.sessionPromise = this.ai.live.connect({
-      model: "gemini-2.5-flash-native-audio-preview-09-2025",
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: { prebuiltVoiceConfig: { voiceName: profile.voiceName } },
-        },
-        systemInstruction,
-        inputAudioTranscription: {},
-        outputAudioTranscription: {},
-      },
-      callbacks: {
-        onopen: () => console.log("Live session opened"),
-        onmessage: async (message: LiveServerMessage) => {
-          console.log("Live message received:", message);
-
-          if (message.serverContent?.modelTurn) {
-            for (const part of message.serverContent.modelTurn.parts) {
-              if (part.inlineData?.data) {
-                callbacks.onAudio(part.inlineData.data);
-              }
-            }
-          }
-
-          if (message.serverContent?.turnComplete) {
-            callbacks.onTurnComplete();
-          }
-
-          if (message.serverContent?.inputTranscription?.text) {
-            callbacks.onTranscript('user', message.serverContent.inputTranscription.text, !!message.serverContent.inputTranscription.finished, true);
-          }
-          if (message.serverContent?.outputTranscription?.text) {
-            callbacks.onTranscript('model', message.serverContent.outputTranscription.text, !!message.serverContent.outputTranscription.finished, true);
-          }
-
-          if (message.serverContent?.interrupted) {
-            console.log("Live session interrupted");
-            callbacks.onInterrupted();
-            callbacks.onTurnComplete();
-          }
-        },
-        onclose: (event) => {
-          console.log("Live session closed:", event);
-          callbacks.onClose();
-        },
-        onerror: (err) => {
-          console.error("Live session error:", err);
-          callbacks.onError(err);
-        },
-      },
-    });
+  constructor(profile: CharacterProfile, persona: Persona, language: string, callbacks: any) {
+    this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+    this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY!, dangerouslyAllowBrowser: true });
+    this.systemInstruction = buildSystemInstruction(profile, persona, language);
+    this.profile = profile;
+    this.callbacks = callbacks;
   }
 
-  async sendAudio(base64: string) {
-    if (this.sessionPromise) {
-      const session = await this.sessionPromise;
-      session.sendRealtimeInput({
-        media: { data: base64, mimeType: 'audio/pcm;rate=16000' }
-      });
-    }
+  private mapVoice(geminiVoice: string): "alloy" | "ash" | "coral" | "echo" | "fable" | "onyx" | "nova" | "sage" | "shimmer" {
+    // Map Gemini voices to OpenAI voices
+    const map: Record<string, "alloy" | "ash" | "coral" | "echo" | "fable" | "onyx" | "nova" | "sage" | "shimmer"> = {
+      'Puck': 'nova',    // Child/high
+      'Charon': 'onyx',  // Deep male
+      'Kore': 'shimmer', // Female
+      'Fenrir': 'echo',  // Strong male
+      'Zephyr': 'alloy', // Neutral
+    };
+    return map[geminiVoice] || 'alloy';
   }
 
   async sendText(text: string) {
-    if (this.sessionPromise) {
-      const session = await this.sessionPromise;
-      session.sendClientContent({
-        turns: [{ parts: [{ text }] }],
-        turnComplete: true
+    if (!this.isActive) return;
+
+    this.callbacks.onTranscript('user', text, true, false);
+    this.history.push({ role: 'user', parts: [{ text }] });
+
+    try {
+      const response = await this.ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: this.history,
+        config: {
+          systemInstruction: this.systemInstruction,
+        }
       });
+
+      if (!this.isActive) return;
+
+      const responseText = response.text || "";
+      this.history.push({ role: 'model', parts: [{ text: responseText }] });
+      this.callbacks.onTranscript('model', responseText, true, false);
+
+      // TTS playback
+      const mp3 = await this.openai.audio.speech.create({
+        model: "tts-1",
+        voice: this.mapVoice(this.profile.voiceName),
+        input: responseText,
+      });
+
+      if (!this.isActive) return;
+
+      const buffer = await mp3.arrayBuffer();
+      const blob = new Blob([buffer], { type: "audio/mp3" });
+      const url = URL.createObjectURL(blob);
+
+      this.currentAudioUrl = url;
+      this.currentAudioElement = new Audio(url);
+      this.currentAudioElement.onended = () => {
+        if (this.isActive) {
+          this.callbacks.onTurnComplete();
+        }
+      };
+
+      this.currentAudioElement.play().catch(e => {
+        console.error("Audio play failed:", e);
+        if (this.isActive) {
+          this.callbacks.onTurnComplete();
+        }
+      });
+    } catch (e) {
+      if (this.isActive) {
+        this.callbacks.onError(e);
+      }
     }
   }
 
-  async close() {
-    if (this.sessionPromise) {
-      const session = await this.sessionPromise;
-      session.close();
-      this.sessionPromise = null;
+  close() {
+    this.isActive = false;
+    if (this.currentAudioElement) {
+      this.currentAudioElement.pause();
+      this.currentAudioElement = null;
+    }
+    if (this.currentAudioUrl) {
+      URL.revokeObjectURL(this.currentAudioUrl);
+      this.currentAudioUrl = null;
     }
   }
 }
