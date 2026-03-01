@@ -403,7 +403,7 @@ export class ChatSession {
     try {
       // Plan C: 軽量モデル + 直近5ターンのみ送信
       const response = await this.ai.models.generateContent({
-        model: "gemini-2.0-flash-lite",
+        model: "gemini-2.0-flash",
         contents: this.history.slice(-10),
         config: {
           systemInstruction: this.systemInstruction,
