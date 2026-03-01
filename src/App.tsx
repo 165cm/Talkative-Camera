@@ -45,6 +45,7 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chatSessionRef = useRef<ChatSession | null>(null);
   const recognitionRef = useRef<any>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const isEndingRef = useRef(false);
 
@@ -172,6 +173,12 @@ export default function App() {
     setTimeLeft(100);
     setCallState('idle');
 
+    // Initialize AudioContext (unlock on user gesture)
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext();
+    }
+    audioContextRef.current.resume();
+
     // Initialize Web Speech API
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -229,8 +236,10 @@ export default function App() {
       onError: (err: any) => {
         console.error("ChatSession error:", err);
         setCallState('idle');
+        setAnalysisError(true);
+        setTimeout(() => setAnalysisError(false), 3000);
       }
-    });
+    }, audioContextRef.current!);
 
     timerRef.current = setInterval(() => {
       setTimeLeft(prev => {
@@ -598,6 +607,7 @@ export default function App() {
               <div className="flex justify-center space-x-6 relative">
                 <button
                   onClick={() => {
+                    audioContextRef.current?.resume();
                     if (callState === 'idle') {
                       try {
                         recognitionRef.current?.start();

@@ -350,16 +350,17 @@ export class ChatSession {
     onTurnComplete: () => void;
     onError: (err: any) => void;
   };
-  private currentAudioUrl: string | null = null;
-  private currentAudioElement: HTMLAudioElement | null = null;
+  private audioContext: AudioContext;
+  private currentSourceNode: AudioBufferSourceNode | null = null;
   public isActive: boolean = true;
 
-  constructor(profile: CharacterProfile, persona: Persona, language: string, callbacks: any) {
+  constructor(profile: CharacterProfile, persona: Persona, language: string, callbacks: any, audioContext: AudioContext) {
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY!, dangerouslyAllowBrowser: true });
     this.systemInstruction = buildSystemInstruction(profile, persona, language);
     this.profile = profile;
     this.callbacks = callbacks;
+    this.audioContext = audioContext;
   }
 
   private mapVoice(geminiVoice: string): "alloy" | "ash" | "coral" | "echo" | "fable" | "onyx" | "nova" | "sage" | "shimmer" {
@@ -405,23 +406,20 @@ export class ChatSession {
       if (!this.isActive) return;
 
       const buffer = await mp3.arrayBuffer();
-      const blob = new Blob([buffer], { type: "audio/mp3" });
-      const url = URL.createObjectURL(blob);
+      const audioBuffer = await this.audioContext.decodeAudioData(buffer.slice(0));
 
-      this.currentAudioUrl = url;
-      this.currentAudioElement = new Audio(url);
-      this.currentAudioElement.onended = () => {
+      if (!this.isActive) return;
+
+      const source = this.audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(this.audioContext.destination);
+      source.onended = () => {
         if (this.isActive) {
           this.callbacks.onTurnComplete();
         }
       };
-
-      this.currentAudioElement.play().catch(e => {
-        console.error("Audio play failed:", e);
-        if (this.isActive) {
-          this.callbacks.onTurnComplete();
-        }
-      });
+      this.currentSourceNode = source;
+      source.start();
     } catch (e) {
       if (this.isActive) {
         this.callbacks.onError(e);
@@ -431,13 +429,9 @@ export class ChatSession {
 
   close() {
     this.isActive = false;
-    if (this.currentAudioElement) {
-      this.currentAudioElement.pause();
-      this.currentAudioElement = null;
-    }
-    if (this.currentAudioUrl) {
-      URL.revokeObjectURL(this.currentAudioUrl);
-      this.currentAudioUrl = null;
+    if (this.currentSourceNode) {
+      try { this.currentSourceNode.stop(); } catch (_) {}
+      this.currentSourceNode = null;
     }
   }
 }
