@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Camera, Phone, PhoneOff, Settings, User, Globe } from 'lucide-react';
+import { Camera, Phone, PhoneOff, Settings, User, Globe, Mic } from 'lucide-react';
 import { analyzeObject, ChatSession, CharacterProfile, Persona, PERSONAS } from './services/gemini';
 import { t, getLangCode, LangCode } from './i18n/translations';
 import { getUsageData, recordSession, isLimitReached, MAX_SESSIONS_PER_DAY } from './lib/usageTracker';
@@ -279,7 +279,7 @@ export default function App() {
   const limitReached = isLimitReached();
 
   return (
-    <div className="min-h-screen bg-neutral-900 text-white font-sans overflow-hidden flex flex-col">
+    <div className="min-h-screen bg-neutral-900 text-white font-sans overflow-hidden flex flex-col select-none touch-none">
       <AnimatePresence mode="wait">
 
         {/* ── LANGUAGE SELECTION ── */}
@@ -594,46 +594,51 @@ export default function App() {
               </div>
             </div>
 
-            <div className="w-full max-w-xs space-y-6 mb-8">
-              <div className="flex justify-center space-x-6">
+            <div className="w-full max-w-xs space-y-6 mb-8 select-none touch-none">
+              <div className="flex justify-center space-x-6 relative">
                 <button
-                  onPointerDown={() => {
-                    if (recognitionRef.current && callState === 'idle') {
+                  onClick={() => {
+                    if (callState === 'idle') {
                       try {
-                        recognitionRef.current.start();
+                        recognitionRef.current?.start();
                         setCallState('listening');
                       } catch (e) {
                         console.error(e);
                       }
+                    } else if (callState === 'listening') {
+                      // Manual stop (force send)
+                      recognitionRef.current?.stop();
+                      setCallState('idle'); // will be processed in onend
                     }
                   }}
-                  onPointerUp={() => {
-                    if (recognitionRef.current && callState === 'listening') {
-                      recognitionRef.current.stop();
-                    }
-                  }}
-                  onPointerLeave={() => {
-                    if (recognitionRef.current && callState === 'listening') {
-                      recognitionRef.current.stop();
-                    }
-                  }}
-                  className={`w-20 h-20 rounded-full flex items-center justify-center shadow-lg transition-transform ${callState === 'listening' ? 'bg-indigo-400 scale-110' : 'bg-emerald-500 active:scale-95'}`}
+                  className={`w-20 h-20 rounded-full flex items-center justify-center shadow-lg transition-transform relative z-10 ${callState === 'listening' ? 'bg-rose-500 scale-110' : 'bg-emerald-500 active:scale-95'}`}
                 >
-                  <Phone className={`w-10 h-10 ${callState === 'listening' ? 'text-indigo-900 animate-pulse' : 'text-white'}`} />
+                  {callState === 'listening' && (
+                    <motion.div
+                      animate={{ scale: [1, 1.5], opacity: [0.8, 0] }}
+                      transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut" }}
+                      className="absolute inset-0 bg-rose-500 rounded-full z-[-1]"
+                    />
+                  )}
+                  {callState === 'listening' ? (
+                    <Mic className="w-10 h-10 text-white animate-pulse" />
+                  ) : (
+                    <Mic className="w-10 h-10 text-white" />
+                  )}
                 </button>
                 <button
                   onClick={endCall}
-                  className="w-20 h-20 bg-neutral-600 rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-transform"
+                  className="w-20 h-20 bg-neutral-600 rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-transform relative z-10"
                 >
                   <PhoneOff className="w-10 h-10 text-white" />
                 </button>
               </div>
               <div className="text-center">
-                <p className="text-white/80 font-bold mb-2">
-                  {callState === 'idle' ? 'おして話す📱 / Hold to talk' :
-                    callState === 'listening' ? '聞いています👂...' :
-                      callState === 'processing' ? '考えています🤔...' :
-                        '話しています👄...'}
+                <p className="text-white/80 font-bold mb-2 text-lg">
+                  {callState === 'idle' ? 'ぽちっと押して話す🎤' :
+                    callState === 'listening' ? 'きいているよ！👂...' :
+                      callState === 'processing' ? 'かんがえているよ！🤔...' :
+                        'おはなしちゅう👄...'}
                 </p>
                 <p className="text-white/40 text-sm italic">"{character?.catchphrase}"</p>
               </div>
