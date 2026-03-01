@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality, Content } from "@google/genai";
+import { GoogleGenAI, Content } from "@google/genai";
 
 export interface QuizItem {
   question: string;
@@ -272,17 +272,19 @@ Q${i + 1}: ${q.question}
 ${quizLines}
 
 === 進め方 ===
-1. 自己紹介（豆知識含む）が終わったら、Q1を出題する
+1. 【最初のターン】自己紹介（豆知識含む）＋Q1を同じ返答内で話す
+   例:「〇〇だよ！実は△△なんだ。じゃあクイズ！□□は何でしょう？」
 2. ユーザーが回答したら判定:
-   - 正解 → 一言褒めて + 解説 → 「次の問題！」とQ2へ
-   - 不正解 → ヒントを出す → 再回答 → 正解を教えて解説 → Q2へ
+   - 正解 → 一言褒めて + 解説 → 「次の問題！」とQ2を出題
+   - 不正解 → ヒントを出す → 再回答 → 正解を教えて解説 → Q2を出題
    - 回答が曖昧でも意図を汲んで判定する
 3. Q2→Q3と同様に進める
 4. 全問終了後 or 時間が迫ったら自然に締めくくる
 
 === 制約 ===
-- クイズ中の返答は短く（2文以内）
-- 「第1問」などクイズ番号は言わず「まずは問題！」「次の問題！」など自然に
+- 最初のターン（挨拶+Q1）以外の返答は短く（2文以内）
+- 「第1問」などクイズ番号は言わず「まずクイズ！」「次の問題！」など自然に
+- ユーザーが何か話しかけてきたら、それに反応しつつQ1に誘導する
 `.trim();
 }
 
@@ -472,10 +474,13 @@ export class ChatSession {
     return params[this.profile.voiceName] ?? { pitch: 1.0, rate: 1.0 };
   }
 
-  async sendText(text: string) {
+  async sendText(text: string, isSystem: boolean = false) {
     if (!this.isActive) return;
 
-    this.callbacks.onTranscript('user', text, true, false);
+    // システムメッセージはUIに表示しない
+    if (!isSystem) {
+      this.callbacks.onTranscript('user', text, true, false);
+    }
     this.history.push({ role: 'user', parts: [{ text }] });
 
     try {

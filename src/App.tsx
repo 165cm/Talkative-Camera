@@ -264,6 +264,10 @@ export default function App() {
       }
     });
 
+    // AIが最初に話しかけるよう、システムメッセージでトリガーする
+    const greetMsg = t('system.greetAndQuiz', langCode);
+    chatSessionRef.current.sendText(greetMsg, true);
+
     timerRef.current = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 0) return 0;

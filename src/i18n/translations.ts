@@ -38,7 +38,8 @@ export type TranslationKey =
   | 'ended.playAgain'
   // System messages sent to Gemini as instructions
   | 'system.timeUpChild'
-  | 'system.timeUpAdult';
+  | 'system.timeUpAdult'
+  | 'system.greetAndQuiz';
 
 type Translations = Record<LangCode, Record<TranslationKey, string>>;
 
@@ -69,6 +70,7 @@ export const translations: Translations = {
     'ended.playAgain': 'もういちどあそぶ！',
     'system.timeUpChild': 'そろそろ電話を切る時間です。子供にバイバイと言って、可愛い言い訳をして電話を切ってください。',
     'system.timeUpAdult': 'そろそろ電話を切る時間です。会話を自然に締めくくり、別れの挨拶をして電話を切ってください。',
+    'system.greetAndQuiz': '会話を始めてください。自己紹介をして、そのままクイズの1問目を出題してください。',
   },
   en: {
     'langScreen.title': 'Choose Language',
@@ -96,6 +98,7 @@ export const translations: Translations = {
     'ended.playAgain': 'Play Again!',
     'system.timeUpChild': "It's time to hang up. Say a cute goodbye to the child with a fun excuse and end the call.",
     'system.timeUpAdult': "It's time to wrap up. Conclude the conversation naturally and say your farewells.",
+    'system.greetAndQuiz': 'Please start the conversation. Introduce yourself and immediately ask Quiz Question 1.',
   },
   ms: {
     'langScreen.title': 'Pilih Bahasa',
@@ -123,6 +126,7 @@ export const translations: Translations = {
     'ended.playAgain': 'Main Lagi!',
     'system.timeUpChild': 'Sudah tiba masanya untuk menutup telefon. Ucap selamat tinggal kepada kanak-kanak dengan alasan yang comel.',
     'system.timeUpAdult': 'Sudah tiba masanya untuk mengakhiri perbualan. Tutup dengan semula jadi dan ucap selamat tinggal.',
+    'system.greetAndQuiz': 'Sila mulakan perbualan. Perkenalkan diri anda dan terus tanya Soalan Kuiz 1.',
   },
   zh: {
     'langScreen.title': '选择语言',
@@ -150,6 +154,7 @@ export const translations: Translations = {
     'ended.playAgain': '再玩一次！',
     'system.timeUpChild': '是时候挂电话了。向孩子说再见，用可爱的借口结束通话。',
     'system.timeUpAdult': '是时候结束对话了。自然地收尾并道别。',
+    'system.greetAndQuiz': '请开始对话。先介绍自己，然后立即提出测验第一题。',
   },
   ta: {
     'langScreen.title': 'மொழியை தேர்ந்தெடுங்கள்',
@@ -177,6 +182,7 @@ export const translations: Translations = {
     'ended.playAgain': 'மீண்டும் விளையாடு!',
     'system.timeUpChild': 'இப்போது தொலைபேசியை வைக்கும் நேரம். குழந்தைக்கு அழகாக விடைபெற்று அழைப்பை முடிக்கவும்.',
     'system.timeUpAdult': 'உரையாடலை முடிக்கும் நேரம். இயல்பாக முடித்து விடைபெறவும்.',
+    'system.greetAndQuiz': 'உரையாடலை தொடங்கவும். உங்களை அறிமுகப்படுத்திக்கொண்டு உடனே முதல் வினாடி வினாவை கேளுங்கள்.',
   },
   ko: {
     'langScreen.title': '언어를 선택하세요',
@@ -204,6 +210,7 @@ export const translations: Translations = {
     'ended.playAgain': '다시 놀기!',
     'system.timeUpChild': '이제 전화를 끊을 시간이에요. 아이에게 귀엽게 이유를 대며 작별인사를 하고 전화를 끊어주세요.',
     'system.timeUpAdult': '이제 대화를 마무리할 시간입니다. 자연스럽게 마무리하며 작별인사를 해주세요.',
+    'system.greetAndQuiz': '대화를 시작해주세요. 자기소개를 하고 바로 퀴즈 첫 번째 문제를 내주세요.',
   },
 };
 
