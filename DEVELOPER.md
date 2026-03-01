@@ -73,7 +73,7 @@ interface CharacterProfile {
 | 役割 | 技術 | 特徴 |
 |---|---|---|
 | **STT**（発話認識） | Web Speech API（ブラウザネイティブ） | 無料・低遅延・多言語対応 |
-| **LLM**（応答生成） | Gemini 2.0 Flash REST API | 直近5ターンのみ送信・高速・低コスト |
+| **LLM**（応答生成） | Gemini 2.5 Flash REST API | 直近5ターンのみ送信・高速・低コスト |
 | **TTS**（音声合成） | Web SpeechSynthesis API（ブラウザネイティブ） | 無料・即時再生・OS依存の音声 |
 
 ---
@@ -96,7 +96,7 @@ SpeechRecognition.onresult(isFinal=true) ← 最終認識テキスト取得
 setCallState('processing')
 ChatSession.sendText(text)
         │
-        ├─ Gemini 2.0 Flash API ─ 応答テキスト生成
+        ├─ Gemini 2.5 Flash API ─ 応答テキスト生成
         │         （直近5ターン history.slice(-10) を送信）
         │
         ▼
@@ -331,7 +331,7 @@ define: {
 | キャラクター生成（STT） | Web Speech API | 無料 |
 | キャラクター生成（テキスト） | Gemini Flash Lite | < $0.001 |
 | キャラクター画像生成 | Gemini 2.5 Flash | ~$0.01–0.03 |
-| 会話LLM（1ターンあたり） | Gemini 2.0 Flash | ~$0.001 |
+| 会話LLM（1ターンあたり） | Gemini 2.5 Flash | ~$0.001 |
 | 音声合成（1ターンあたり） | Web SpeechSynthesis | **$0（無料）** |
 | **1セッション合計（5ターン想定）** | | **~$0.01–0.03 / セッション** |
 
