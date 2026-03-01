@@ -15,10 +15,10 @@
 
 **Talkative Camera (ガチャ電話)** is a magical AI app that turns everyday objects into talking characters.
 Snap a photo of anything — a cup, a toy, a piece of fruit — and that object comes to life as a unique character and calls you for a 100-second voice chat!
-*New:* Powered by Hybrid Web Speech STT & OpenAI TTS for lightning-fast, highly accurate multilingual conversations!
+*New:* Powered by Web Speech STT & Browser SpeechSynthesis TTS — zero TTS cost, instant response, fully offline-capable voice pipeline!
 
 **おしゃべりカメラ（ガチャ電話）**は、カメラで撮ったモノをAIがキャラクターに変えて、音声通話してくれる不思議なアプリです。
-*最新版:* 「押して話す（トランシーバー形式）」を採用し、どんな言語（特に英語）でも爆速・高精度で聞き取れるようになりました！
+*最新版:* ブラウザネイティブ TTS に切り替え、OpenAI TTS コスト $0・レイテンシ大幅削減を実現。軽量モデル（Gemini 2.0 Flash Lite）採用で応答も爆速！
 
 ---
 

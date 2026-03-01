@@ -45,7 +45,6 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chatSessionRef = useRef<ChatSession | null>(null);
   const recognitionRef = useRef<any>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const isEndingRef = useRef(false);
 
@@ -173,11 +172,8 @@ export default function App() {
     setTimeLeft(100);
     setCallState('idle');
 
-    // Initialize AudioContext (unlock on user gesture)
-    if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext();
-    }
-    audioContextRef.current.resume();
+    // SpeechSynthesis をユーザージェスチャーでアンロック
+    window.speechSynthesis.cancel();
 
     // Initialize Web Speech API
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -187,16 +183,43 @@ export default function App() {
         'ja': 'ja-JP', 'en': 'en-US', 'ms': 'ms-MY', 'zh': 'zh-CN', 'ko': 'ko-KR', 'ta': 'ta-IN'
       };
       recognition.lang = langMapping[langCode] || 'en-US';
-      recognition.interimResults = false;
+      recognition.interimResults = true;
       recognition.continuous = false;
 
       recognition.onresult = (event: any) => {
-        const text = event.results[0][0].transcript;
-        if (text && chatSessionRef.current) {
-          setCallState('processing');
-          chatSessionRef.current.sendText(text);
+        let text = '';
+        let isFinal = false;
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          text += event.results[i][0].transcript;
+          if (event.results[i].isFinal) isFinal = true;
+        }
+
+        if (isFinal) {
+          // インタリム表示を除去してから sendText が最終メッセージを追加
+          setTranscripts(prev => {
+            const newT = [...prev];
+            const last = newT[newT.length - 1];
+            if (last && last.speaker === 'user' && !last.finished) newT.pop();
+            return newT;
+          });
+          if (text && chatSessionRef.current) {
+            setCallState('processing');
+            chatSessionRef.current.sendText(text);
+          } else {
+            setCallState('idle');
+          }
         } else {
-          setCallState('idle');
+          // 発話中のインタリムテキストをバブルに表示
+          setTranscripts(prev => {
+            const newT = [...prev];
+            const last = newT[newT.length - 1];
+            if (last && last.speaker === 'user' && !last.finished) {
+              last.text = text;
+            } else {
+              newT.push({ speaker: 'user', text, finished: false });
+            }
+            return newT.slice(-5);
+          });
         }
       };
 
@@ -239,7 +262,7 @@ export default function App() {
         setAnalysisError(true);
         setTimeout(() => setAnalysisError(false), 3000);
       }
-    }, audioContextRef.current!);
+    });
 
     timerRef.current = setInterval(() => {
       setTimeLeft(prev => {
@@ -607,7 +630,6 @@ export default function App() {
               <div className="flex justify-center space-x-6 relative">
                 <button
                   onClick={() => {
-                    audioContextRef.current?.resume();
                     if (callState === 'idle') {
                       try {
                         recognitionRef.current?.start();

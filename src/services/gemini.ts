@@ -1,5 +1,4 @@
 import { GoogleGenAI, Modality, Content } from "@google/genai";
-import OpenAI from "openai";
 
 export interface CharacterProfile {
   name: string;
@@ -261,6 +260,8 @@ ${language}で話してください。
 
 外部から終了の合図があるまで楽しく会話を続けてください。
 もし終了の指示がシステムからあれば、${profile.catchphrase}を使いながら、自然な言い訳をして電話を切ってください。
+
+短く、テンポよく話してください。
   `.trim();
 
   if (persona.id === 'tiny') {
@@ -341,38 +342,50 @@ ${getVocabularyInstruction('elementary', language)}
 
 export class ChatSession {
   private ai: GoogleGenAI;
-  private openai: OpenAI;
   private history: Content[] = [];
   private systemInstruction: string;
   private profile: CharacterProfile;
+  private language: string;
   private callbacks: {
     onTranscript: (speaker: 'user' | 'model', text: string, isFinal: boolean, isDelta: boolean) => void;
     onTurnComplete: () => void;
     onError: (err: any) => void;
   };
-  private audioContext: AudioContext;
-  private currentSourceNode: AudioBufferSourceNode | null = null;
   public isActive: boolean = true;
 
-  constructor(profile: CharacterProfile, persona: Persona, language: string, callbacks: any, audioContext: AudioContext) {
+  constructor(profile: CharacterProfile, persona: Persona, language: string, callbacks: any) {
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-    this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY!, dangerouslyAllowBrowser: true });
     this.systemInstruction = buildSystemInstruction(profile, persona, language);
     this.profile = profile;
+    this.language = language;
     this.callbacks = callbacks;
-    this.audioContext = audioContext;
   }
 
-  private mapVoice(geminiVoice: string): "alloy" | "ash" | "coral" | "echo" | "fable" | "onyx" | "nova" | "sage" | "shimmer" {
-    // Map Gemini voices to OpenAI voices
-    const map: Record<string, "alloy" | "ash" | "coral" | "echo" | "fable" | "onyx" | "nova" | "sage" | "shimmer"> = {
-      'Puck': 'nova',    // Child/high
-      'Charon': 'onyx',  // Deep male
-      'Kore': 'shimmer', // Female
-      'Fenrir': 'echo',  // Strong male
-      'Zephyr': 'alloy', // Neutral
+  private getLangCode(): string {
+    const map: Record<string, string> = {
+      '日本語': 'ja-JP', 'English': 'en-US', 'Bahasa Melayu': 'ms-MY',
+      '中文': 'zh-CN', 'தமிழ்': 'ta-IN', '한국어': 'ko-KR',
     };
-    return map[geminiVoice] || 'alloy';
+    return map[this.language] || 'en-US';
+  }
+
+  private getBrowserVoice(): SpeechSynthesisVoice | null {
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length === 0) return null;
+    const langPrefix = this.getLangCode().substring(0, 2);
+    const langVoices = voices.filter(v => v.lang.toLowerCase().startsWith(langPrefix));
+    return langVoices[0] || voices[0] || null;
+  }
+
+  private getVoiceParams(): { pitch: number; rate: number } {
+    const params: Record<string, { pitch: number; rate: number }> = {
+      'Puck':   { pitch: 1.3, rate: 1.0 },
+      'Charon': { pitch: 0.7, rate: 0.9 },
+      'Kore':   { pitch: 1.1, rate: 1.0 },
+      'Fenrir': { pitch: 0.9, rate: 1.0 },
+      'Zephyr': { pitch: 1.0, rate: 1.0 },
+    };
+    return params[this.profile.voiceName] ?? { pitch: 1.0, rate: 1.0 };
   }
 
   async sendText(text: string) {
@@ -382,9 +395,10 @@ export class ChatSession {
     this.history.push({ role: 'user', parts: [{ text }] });
 
     try {
+      // Plan C: 軽量モデル + 直近5ターンのみ送信
       const response = await this.ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: this.history,
+        model: "gemini-2.0-flash-lite",
+        contents: this.history.slice(-10),
         config: {
           systemInstruction: this.systemInstruction,
         }
@@ -396,30 +410,22 @@ export class ChatSession {
       this.history.push({ role: 'model', parts: [{ text: responseText }] });
       this.callbacks.onTranscript('model', responseText, true, false);
 
-      // TTS playback
-      const mp3 = await this.openai.audio.speech.create({
-        model: "tts-1",
-        voice: this.mapVoice(this.profile.voiceName),
-        input: responseText,
-      });
-
-      if (!this.isActive) return;
-
-      const buffer = await mp3.arrayBuffer();
-      const audioBuffer = await this.audioContext.decodeAudioData(buffer.slice(0));
-
-      if (!this.isActive) return;
-
-      const source = this.audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(this.audioContext.destination);
-      source.onended = () => {
-        if (this.isActive) {
-          this.callbacks.onTurnComplete();
-        }
+      // Plan A: ブラウザ SpeechSynthesis TTS（無料・即時）
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(responseText);
+      utterance.lang = this.getLangCode();
+      const voice = this.getBrowserVoice();
+      if (voice) utterance.voice = voice;
+      const { pitch, rate } = this.getVoiceParams();
+      utterance.pitch = pitch;
+      utterance.rate = rate;
+      utterance.onend = () => {
+        if (this.isActive) this.callbacks.onTurnComplete();
       };
-      this.currentSourceNode = source;
-      source.start();
+      utterance.onerror = () => {
+        if (this.isActive) this.callbacks.onTurnComplete();
+      };
+      window.speechSynthesis.speak(utterance);
     } catch (e) {
       if (this.isActive) {
         this.callbacks.onError(e);
@@ -429,9 +435,6 @@ export class ChatSession {
 
   close() {
     this.isActive = false;
-    if (this.currentSourceNode) {
-      try { this.currentSourceNode.stop(); } catch (_) {}
-      this.currentSourceNode = null;
-    }
+    window.speechSynthesis.cancel();
   }
 }
