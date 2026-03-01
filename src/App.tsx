@@ -266,13 +266,18 @@ export default function App() {
 
     timerRef.current = setInterval(() => {
       setTimeLeft(prev => {
-        if (prev <= 1) { handleTimeUp(); return 0; }
+        if (prev <= 0) return 0;
+        if (prev === 1) { handleTimeUp(); return 0; }
         return prev - 1;
       });
     }, 1000);
   };
 
   const handleTimeUp = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
     if (chatSessionRef.current) {
       const endMessage = currentPersona.isChild
         ? t('system.timeUpChild', langCode)
