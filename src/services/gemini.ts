@@ -1,5 +1,12 @@
 import { GoogleGenAI, Modality, Content } from "@google/genai";
 
+export interface QuizItem {
+  question: string;
+  answer: string;
+  explanation: string;
+  hint: string;
+}
+
 export interface CharacterProfile {
   name: string;
   nickname: string;
@@ -9,6 +16,8 @@ export interface CharacterProfile {
   description: string;
   trivia: string;
   imageUrl?: string; // Base64 encoded image
+  isNamedCharacter: boolean;
+  quizzes: QuizItem[];
 }
 
 export interface Persona {
@@ -133,14 +142,48 @@ export async function analyzeObject(base64Image: string, persona: Persona, langu
     ? `"visualPrompt": "このキャラクターを画像生成するための英語のプロンプト。被写体の色や形状を活かしつつ、子供向けの可愛い擬人化キャラクター（2Dアニメスタイル、シンプル、背景なし）として描く指示。"`
     : `"visualPrompt": "このキャラクターを画像生成するための英語のプロンプト。被写体の色や形状を活かしつつ、知的でユニークな擬人化キャラクター（イラスト風、表情豊か、背景なし）として描く指示。"`;
 
+  const quizDifficulty = persona.id === 'tiny' ? '超かんたん（色・形・音など感覚的な質問）'
+    : persona.id === 'kinder' ? 'かんたん（どこにある？何に使う？など）'
+    : persona.id === 'elementary' ? 'ふつう（どうやって作られる？産地は？など）'
+    : persona.id === 'adult' ? '深い（歴史・科学・文化的背景）'
+    : '専門的・学術的（詳細なメカニズム・専門用語）';
+
+  const quizInstruction = `"quizzes": [
+      {
+        "question": "問題文（${quizDifficulty}レベル・1文。${language}で）",
+        "answer": "正解（1〜3語の短い答え。${language}で）",
+        "explanation": "解説（50文字以内。${language}で）",
+        "hint": "ヒント（20文字以内。${language}で）"
+      },
+      {
+        "question": "問題文（2問目・${quizDifficulty}レベル・1問目と違うテーマ）",
+        "answer": "正解",
+        "explanation": "解説（50文字以内）",
+        "hint": "ヒント（20文字以内）"
+      },
+      {
+        "question": "問題文（3問目・${quizDifficulty}レベル・締めくくり向け）",
+        "answer": "正解",
+        "explanation": "解説（50文字以内）",
+        "hint": "ヒント（20文字以内）"
+      }
+    ]`;
+
   const prompt = `
     この写真に写っている主な被写体を分析して、「おしゃべりするキャラクター」の設定を作ってください。
 
     ${audienceDescription}
     言語: ${language}
 
+    【重要】被写体の判定:
+    - 世界的に知られたフィクションキャラクター（アニメ・マンガ・ゲーム・映画・絵本など）なら isNamedCharacter: true
+      → name: 正式名称、personality: 公式設定に基づく性格、catchphrase: 実際の口癖・語尾
+    - それ以外（一般的な物体・食べ物・動物など）なら isNamedCharacter: false
+      → 擬人化して創作キャラを作る
+
     以下のJSON形式で出力してください:
     {
+      "isNamedCharacter": <true or false>,
       "name": "キャラクターの正式な名前",
       "nickname": "親しみやすい短いあだ名（例：コップくん、りんごちゃん）",
       "personality": "性格（例：元気いっぱい、のんびり屋、博学など）",
@@ -148,7 +191,8 @@ export async function analyzeObject(base64Image: string, persona: Persona, langu
       "voiceName": "声のタイプ（Puck, Charon, Kore, Fenrir, Zephyrから選択）",
       "description": "キャラクターの短い説明",
       ${triviaInstruction},
-      ${visualPromptInstruction}
+      ${visualPromptInstruction},
+      ${quizInstruction}
     }
   `;
 
@@ -177,6 +221,10 @@ export async function analyzeObject(base64Image: string, persona: Persona, langu
     console.error("JSON parse error. Raw text:", text);
     throw new Error("Character profile generation failed");
   }
+
+  // フォールバック: 新フィールドが欠落していても安全に動作する
+  profile.isNamedCharacter = profile.isNamedCharacter ?? false;
+  profile.quizzes = Array.isArray(profile.quizzes) ? profile.quizzes : [];
 
   // 2. Generate the character image using Imagen 4 Fast (text-to-image)
   try {
@@ -207,6 +255,37 @@ export async function analyzeObject(base64Image: string, persona: Persona, langu
   return profile as CharacterProfile;
 }
 
+function buildQuizSection(profile: CharacterProfile): string {
+  if (!profile.quizzes || profile.quizzes.length === 0) return '';
+
+  const quizLines = profile.quizzes.map((q, i) => `
+Q${i + 1}: ${q.question}
+正解: ${q.answer}
+ヒント: ${q.hint}
+解説: ${q.explanation}`).join('\n');
+
+  return `
+【クイズフロー】
+自己紹介が終わったら、以下のクイズを1問ずつ出題してください。
+
+=== クイズリスト ===
+${quizLines}
+
+=== 進め方 ===
+1. 自己紹介（豆知識含む）が終わったら、Q1を出題する
+2. ユーザーが回答したら判定:
+   - 正解 → 一言褒めて + 解説 → 「次の問題！」とQ2へ
+   - 不正解 → ヒントを出す → 再回答 → 正解を教えて解説 → Q2へ
+   - 回答が曖昧でも意図を汲んで判定する
+3. Q2→Q3と同様に進める
+4. 全問終了後 or 時間が迫ったら自然に締めくくる
+
+=== 制約 ===
+- クイズ中の返答は短く（2文以内）
+- 「第1問」などクイズ番号は言わず「まずは問題！」「次の問題！」など自然に
+`.trim();
+}
+
 function getVocabularyInstruction(personaId: string, language: string): string {
   const isJa = language === '日本語';
   const isZh = language === '中文';
@@ -234,19 +313,28 @@ function getVocabularyInstruction(personaId: string, language: string): string {
 }
 
 function buildSystemInstruction(profile: CharacterProfile, persona: Persona, language: string): string {
+  const characterModeInstruction = profile.isNamedCharacter
+    ? `あなたは本物の「${profile.name}」です。このキャラクターの公式の口調・性格・口癖を忠実に再現してください。`
+    : `あなたは「${profile.name}」（あだ名: ${profile.nickname}）という擬人化キャラクターです。`;
+
+  const catchphraseInstruction = profile.isNamedCharacter
+    ? `口癖・語尾（${profile.catchphrase}）はそのキャラクターの実際の話し方として自然に使ってください。`
+    : `口癖（${profile.catchphrase}）は、最初の挨拶と、最後の電話を切る時だけに使ってください。会話の途中では自然に話し、口癖は使わないでください。`;
+
   const base = `
-あなたは「${profile.name}」（あだ名: ${profile.nickname}）というキャラクターです。
+${characterModeInstruction}
 性格: ${profile.personality}
 口癖・語尾: ${profile.catchphrase}
 豆知識: ${profile.trivia}
 
 ${language}で話してください。
 
-【重要】
-最初の挨拶では、自分のあだ名（${profile.nickname}）を名乗り、
-「実はね、${profile.trivia}なんだよ！」という豆知識を含めた自己紹介から始めてください。
+【最初の挨拶】
+自分のあだ名（${profile.nickname}）を名乗り、豆知識「${profile.trivia}」を含めた自己紹介から始めてください。
 
-口癖（${profile.catchphrase}）は、最初の挨拶と、最後の電話を切る時だけに使ってください。会話の途中では自然に話し、口癖は使わないでください。
+${catchphraseInstruction}
+
+${buildQuizSection(profile)}
 
 外部から終了の合図があるまで楽しく会話を続けてください。
 もし終了の指示がシステムからあれば、${profile.catchphrase}を使いながら、自然な言い訳をして電話を切ってください。

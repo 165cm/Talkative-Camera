@@ -562,6 +562,11 @@ export default function App() {
                   <span className="text-yellow-300 font-bold">{t('incoming.triviaLabel', langCode)}</span>
                   {character?.trivia}
                 </p>
+                {character?.quizzes && character.quizzes.length > 0 && (
+                  <p className="text-xs text-yellow-300 mt-1 text-center font-medium">
+                    🎯 クイズ {character.quizzes.length}問に挑戦！
+                  </p>
+                )}
               </div>
             </div>
 
