@@ -13,7 +13,7 @@
             └── 🎨 Gemini Flash  →  キャラクター画像生成
                  └── 🎙️ 音声会話ループ（ChatSession）
                       ├── STT: Web Speech API（ブラウザネイティブ）
-                      ├── LLM: Gemini 2.0 Flash Lite（REST）
+                      ├── LLM: Gemini 2.5 Flash（REST）
                       └── TTS: Web SpeechSynthesis API（ブラウザネイティブ）
 ```
 
@@ -41,7 +41,7 @@ src/
 
 ### 1️⃣ キャラクタープロフィール生成 (`analyzeObject`)
 
-**モデル:** `gemini-2.0-flash-lite` (または最新の Flash Lite)
+**モデル:** `gemini-flash-lite-latest`（最新 Flash Lite を自動追従するエイリアス）
 **入力:** 撮影画像（JPEG base64） + ペルソナ + 言語
 **出力:** `CharacterProfile` JSON
 
@@ -60,7 +60,7 @@ interface CharacterProfile {
 
 ### 2️⃣ キャラクター画像生成
 
-**モデル:** `gemini-2.5-flash-preview-05-20` (画像生成対応モデル)
+**モデル:** `gemini-2.5-flash-image`（画像生成対応モデル）
 **入力:** 元画像 + キャラクター情報
 **出力:** PNG画像（base64）
 
@@ -329,8 +329,8 @@ define: {
 | コンポーネント | モデル | 概算コスト |
 |---|---|---|
 | キャラクター生成（STT） | Web Speech API | 無料 |
-| キャラクター生成（テキスト） | Gemini Flash Lite | < $0.001 |
-| キャラクター画像生成 | Gemini 2.5 Flash | ~$0.01–0.03 |
+| キャラクター生成（テキスト） | gemini-flash-lite-latest | < $0.001 |
+| キャラクター画像生成 | gemini-2.5-flash-image | ~$0.01–0.03 |
 | 会話LLM（1ターンあたり） | Gemini 2.5 Flash | ~$0.001 |
 | 音声合成（1ターンあたり） | Web SpeechSynthesis | **$0（無料）** |
 | **1セッション合計（5ターン想定）** | | **~$0.01–0.03 / セッション** |
