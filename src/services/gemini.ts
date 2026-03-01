@@ -178,36 +178,26 @@ export async function analyzeObject(base64Image: string, persona: Persona, langu
     throw new Error("Character profile generation failed");
   }
 
-  // 2. Generate the character image based on the visual prompt and original image
+  // 2. Generate the character image using Imagen 4 Fast (text-to-image)
   try {
     const styleInstruction = persona.isChild
-      ? `Transform this object into a cute, friendly, anthropomorphic character for children. Style: 2D vector art, flat colors, simple, kawaii, solid white background.`
-      : `Transform this object into an intelligent, expressive, anthropomorphic character. Style: illustrated, expressive, detailed, solid white background.`;
+      ? `cute, friendly, anthropomorphic character for children, 2D vector art style, flat colors, simple, kawaii, solid white background, no text`
+      : `intelligent, expressive, anthropomorphic character, illustrated style, expressive, detailed, solid white background, no text`;
 
-    const imageResponse = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              data: base64Image,
-              mimeType: "image/jpeg",
-            },
-          },
-          {
-            text: `${styleInstruction}
-            Details: ${profile.visualPrompt || 'Make it look alive with eyes and an expressive face.'}
-            Keep the original colors and general shape, but make it a living character.`,
-          },
-        ],
+    const imagePrompt = `${styleInstruction}. ${profile.visualPrompt || `An expressive ${profile.name} character with eyes and a friendly face.`}`;
+
+    const imageResponse = await ai.models.generateImages({
+      model: 'imagen-4.0-fast-generate-001',
+      prompt: imagePrompt,
+      config: {
+        numberOfImages: 1,
+        outputMimeType: 'image/jpeg',
       },
     });
 
-    for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        profile.imageUrl = `data:image/png;base64,${part.inlineData.data}`;
-        break;
-      }
+    const imageBytes = imageResponse.generatedImages?.[0]?.image?.imageBytes;
+    if (imageBytes) {
+      profile.imageUrl = `data:image/jpeg;base64,${imageBytes}`;
     }
   } catch (imgError) {
     console.error("Image generation failed:", imgError);

@@ -10,7 +10,7 @@
 ブラウザ（React SPA）
   └── 📷 カメラ撮影
        └── 🤖 Gemini Flash Lite  →  キャラクタープロフィール生成（JSON）
-            └── 🎨 Gemini Flash  →  キャラクター画像生成
+            └── 🎨 Imagen 4 Fast  →  キャラクター画像生成
                  └── 🎙️ 音声会話ループ（ChatSession）
                       ├── STT: Web Speech API（ブラウザネイティブ）
                       ├── LLM: Gemini 2.5 Flash（REST）
@@ -60,11 +60,12 @@ interface CharacterProfile {
 
 ### 2️⃣ キャラクター画像生成
 
-**モデル:** `gemini-2.5-flash-image`（画像生成対応モデル）
-**入力:** 元画像 + キャラクター情報
-**出力:** PNG画像（base64）
+**モデル:** `imagen-4.0-fast-generate-001`（Imagen 4 Fast・テキスト→画像）
+**入力:** キャラクタープロフィールの `visualPrompt`（Step 1 で生成した英語プロンプト） + スタイル指示
+**出力:** JPEG画像（base64）
 
-失敗しても通話は継続（fallback: 撮影写真をそのまま表示）。
+> Step 1 の Gemini Flash Lite が撮影写真を解析して `visualPrompt`（色・形状・雰囲気の英語記述）を生成するため、元写真を直接参照しなくても視覚的特徴が引き継がれます。
+> 失敗しても通話は継続（fallback: 撮影写真をそのまま表示）。
 
 ### 3️⃣ 音声会話ループ (`ChatSession`)
 
@@ -330,7 +331,7 @@ define: {
 |---|---|---|
 | キャラクター生成（STT） | Web Speech API | 無料 |
 | キャラクター生成（テキスト） | gemini-flash-lite-latest | < $0.001 |
-| キャラクター画像生成 | gemini-2.5-flash-image | ~$0.01–0.03 |
+| キャラクター画像生成 | imagen-4.0-fast-generate-001 | ~$0.003–0.01 |
 | 会話LLM（1ターンあたり） | Gemini 2.5 Flash | ~$0.001 |
 | 音声合成（1ターンあたり） | Web SpeechSynthesis | **$0（無料）** |
 | **1セッション合計（5ターン想定）** | | **~$0.01–0.03 / セッション** |
