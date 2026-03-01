@@ -46,17 +46,40 @@ src/
 **出力:** `CharacterProfile` JSON
 
 ```typescript
+interface QuizItem {
+  question: string;    // 問題文（ペルソナ別難易度）
+  answer: string;      // 正解（1〜3語）
+  explanation: string; // 解説（50文字以内）
+  hint: string;        // ヒント（20文字以内）
+}
+
 interface CharacterProfile {
-  name: string;       // 正式名称
-  nickname: string;   // あだ名（UIに表示）
+  name: string;            // 正式名称
+  nickname: string;        // あだ名（UIに表示）
   personality: string;
   catchphrase: string;
   voiceName: 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Zephyr'; // → ブラウザTTS pitch/rate にマッピング
   description: string;
-  trivia: string;     // 豆知識（ペルソナで深さが変わる）
-  imageUrl?: string;  // base64 PNG（Step2で付与）
+  trivia: string;          // 豆知識（ペルソナで深さが変わる）
+  imageUrl?: string;       // base64 PNG（Step2で付与）
+  isNamedCharacter: boolean; // 有名キャラ判定（true: 正確な口調を再現 / false: 擬人化）
+  quizzes: QuizItem[];     // 3問のクイズ（ペルソナ別難易度・多言語対応）
 }
 ```
+
+**有名キャラ vs 擬人化の分岐**:
+- `isNamedCharacter: true` — 機関車トーマス・ピカチュウなどの場合、公式の口調・口癖を忠実に再現
+- `isNamedCharacter: false` — リンゴ・時計などの場合、オリジナルの擬人化キャラを創作
+
+**クイズ難易度はペルソナに連動**:
+
+| ペルソナ | クイズ難易度 |
+|---|---|
+| tiny | 超かんたん（色・形・音など感覚的な質問） |
+| kinder | かんたん（どこにある？何に使う？など） |
+| elementary | ふつう（どうやって作られる？産地は？など） |
+| adult | 深い（歴史・科学・文化的背景） |
+| expert | 専門的・学術的（詳細なメカニズム・専門用語） |
 
 ### 2️⃣ キャラクター画像生成
 
@@ -84,7 +107,18 @@ interface CharacterProfile {
 ### フロー全体図
 
 ```
-[ユーザーがマイクボタンをタップ]
+[startCall() — 緑ボタンタップ直後]
+        │
+        ▼
+chatSession.sendText(greetMsg, isSystem=true)  ← 自動トリガー（UIには表示しない）
+        │
+        ├─ Gemini 2.5 Flash API ─ 挨拶 + 豆知識 + クイズQ1 を生成
+        │
+        ▼
+onTranscript('model', text)    ← キャラクターの最初の発話を表示
+SpeechSynthesisUtterance       ← 音声で読み上げ
+
+[ユーザーがマイクボタンをタップしてクイズに回答]
         │
         ▼
 speechSynthesis.cancel()       ← SpeechSynthesis をユーザージェスチャーでアンロック
@@ -95,9 +129,9 @@ SpeechRecognition.start()      ← ブラウザネイティブSTT起動（interi
         ▼
 SpeechRecognition.onresult(isFinal=true) ← 最終認識テキスト取得
 setCallState('processing')
-ChatSession.sendText(text)
+ChatSession.sendText(text)     ← isSystem=false（UIに表示）
         │
-        ├─ Gemini 2.5 Flash API ─ 応答テキスト生成
+        ├─ Gemini 2.5 Flash API ─ 正解/不正解判定 + 解説 + 次のクイズ生成
         │         （直近5ターン history.slice(-10) を送信）
         │
         ▼
@@ -113,6 +147,8 @@ setCallState('speaking')
 onTurnComplete()
 setCallState('idle')           ← 次の発話待ち状態へ
 ```
+
+> **`sendText(text, isSystem)`**: `isSystem=true` のとき、ユーザーメッセージとして `onTranscript` を呼ばず、会話履歴（`history`）にのみ追加します。通話開始直後の自動トリガーやタイムアップ通知に使用します。
 
 ### callState 遷移図
 
@@ -409,6 +445,14 @@ interface Persona {
   localizedAgeRanges: Record<string, string>; // 言語ラベル → 年齢表示
 }
 
+// クイズ1問分
+interface QuizItem {
+  question: string;
+  answer: string;
+  explanation: string;
+  hint: string;
+}
+
 // AIが生成するキャラクタープロフィール
 interface CharacterProfile {
   name: string;
@@ -419,6 +463,8 @@ interface CharacterProfile {
   description: string;
   trivia: string;
   imageUrl?: string;
+  isNamedCharacter: boolean; // 有名キャラならtrue（公式口調を使う）
+  quizzes: QuizItem[];       // ペルソナ別難易度で3問生成
 }
 
 // ChatSession コールバック

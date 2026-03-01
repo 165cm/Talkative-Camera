@@ -15,10 +15,12 @@
 
 **Talkative Camera (ガチャ電話)** is a magical AI app that turns everyday objects into talking characters.
 Snap a photo of anything — a cup, a toy, a piece of fruit — and that object comes to life as a unique character and calls you for a 100-second voice chat!
+The character **takes the lead** — greeting you, sharing a fun fact, and then quizzing you with 2–3 questions in under a minute!
 *New:* Powered by Web Speech STT & Browser SpeechSynthesis TTS — zero TTS cost, instant response, fully offline-capable voice pipeline!
 
 **おしゃべりカメラ（ガチャ電話）**は、カメラで撮ったモノをAIがキャラクターに変えて、音声通話してくれる不思議なアプリです。
-*最新版:* ブラウザネイティブ TTS に切り替え、OpenAI TTS コスト $0・レイテンシ大幅削減を実現。軽量モデル（Gemini 2.0 Flash Lite）採用で応答も爆速！
+キャラクターが**主導権**を持って話しかけてきて、豆知識を紹介したあとクイズを出題！1分間で2〜3問のやりとりができます。
+*最新版:* ブラウザネイティブ TTS に切り替え、OpenAI TTS コスト $0・レイテンシ大幅削減を実現。
 
 ---
 
@@ -58,12 +60,12 @@ Snap a photo of anything — a cup, a toy, a piece of fruit — and that object 
 ### Step 3 — 着信に出る
 
 AIがキャラクターを生成して電話をかけてきます。
-緑の電話ボタンをタップして会話スタート！
+緑の電話ボタンをタップすると、**キャラクターがすぐ自己紹介とクイズ1問目を話しかけてきます！**
 
-### Step 4 — ぽちっと押して話す🎤 (Tap to Talk)
+### Step 4 — ぽちっと押して答えよう🎤 (Tap to Talk)
 
-会話中は**マイクボタンをタップ**して話しかけます。
-もう一度タップすると送信完了！キャラクターがすぐに返事をしてくれます。タイマーが切れると、キャラクターが自然にバイバイしてくれます。
+クイズへの答えは**マイクボタンをタップ**して話します。
+正解なら褒めてもらえて次の問題へ、不正解なら解説してもらえます。1分間で2〜3問チャレンジ！タイマーが切れると、キャラクターが自然にバイバイしてくれます。
 
 > 💡 **前回の設定は自動で記憶されます。** 毎回設定しなくてOK！
 
