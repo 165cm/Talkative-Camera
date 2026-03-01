@@ -1,6 +1,6 @@
-# 🛠️ DEVELOPER GUIDE — おしゃべりカメラ
+# 🛠️ DEVELOPER GUIDE — おしゃべりカメラ（ガチャ電話）
 
-開発者向けの技術解説です。アーキテクチャ・セットアップ手順・ペルソナ追加方法などをまとめています。
+開発者向けの技術解説です。アーキテクチャ・セットアップ手順・音声パイプライン詳細・拡張方法をまとめています。
 
 ---
 
@@ -10,11 +10,14 @@
 ブラウザ（React SPA）
   └── 📷 カメラ撮影
        └── 🤖 Gemini Flash Lite  →  キャラクタープロフィール生成（JSON）
-            └── 🎨 Gemini Flash Image  →  キャラクター画像生成
-                 └── 🎙️ Gemini Live Audio  →  リアルタイム音声通話（100秒）
+            └── 🎨 Gemini Flash  →  キャラクター画像生成
+                 └── 🎙️ 音声会話ループ（ChatSession）
+                      ├── STT: Web Speech API（ブラウザネイティブ）
+                      ├── LLM: Gemini 2.5 Flash（REST）
+                      └── TTS: OpenAI TTS-1 → Web Audio API
 ```
 
-すべてのAI処理は **フロントエンドから直接 Gemini API を呼び出す**クライアントサイドアーキテクチャです。サーバーは静的ファイル配信のみ（またはGitHub Pages）。
+すべてのAI処理は **フロントエンドから直接 API を呼び出す**クライアントサイドアーキテクチャです。サーバーは静的ファイル配信のみ（GitHub Pages）。
 
 ---
 
@@ -26,9 +29,9 @@ src/
 ├── i18n/
 │   └── translations.ts      # 多言語辞書（6言語 × 22キー）+ t() / getLangCode()
 ├── services/
-│   └── gemini.ts            # Gemini API呼び出し・ペルソナ定義・プロンプト生成
+│   └── gemini.ts            # AI処理全般・ChatSession・ペルソナ定義・プロンプト生成
 └── lib/
-    ├── audio.ts             # AudioRecorder / AudioStreamer (PCM16)
+    ├── audio.ts             # 旧アーキテクチャ用（現在未使用）
     └── usageTracker.ts      # 日次使用量カウンター（localStorage）
 ```
 
@@ -38,7 +41,7 @@ src/
 
 ### 1️⃣ キャラクタープロフィール生成 (`analyzeObject`)
 
-**モデル:** `gemini-flash-lite-latest`
+**モデル:** `gemini-2.0-flash-lite` (または最新の Flash Lite)
 **入力:** 撮影画像（JPEG base64） + ペルソナ + 言語
 **出力:** `CharacterProfile` JSON
 
@@ -48,35 +51,139 @@ interface CharacterProfile {
   nickname: string;   // あだ名（UIに表示）
   personality: string;
   catchphrase: string;
-  voiceName: 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Zephyr';
+  voiceName: 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Zephyr'; // → OpenAI音声にマッピング
   description: string;
   trivia: string;     // 豆知識（ペルソナで深さが変わる）
   imageUrl?: string;  // base64 PNG（Step2で付与）
 }
 ```
 
-ペルソナと言語に応じて **プロンプトが自動分岐**します：
-- 子ども向け: 「子供が『へぇ〜！』と思うような豆知識」
-- 大人向け: 「歴史的背景・科学的メカニズム・意外な事実」
-
 ### 2️⃣ キャラクター画像生成
 
-**モデル:** `gemini-2.5-flash-image`
-**入力:** 元画像 + `profile.visualPrompt`
+**モデル:** `gemini-2.5-flash-preview-05-20` (画像生成対応モデル)
+**入力:** 元画像 + キャラクター情報
 **出力:** PNG画像（base64）
-
-- 子ども向け: kawaii 2Dアニメスタイル
-- 大人向け: 知的でユニークなイラスト風
 
 失敗しても通話は継続（fallback: 撮影写真をそのまま表示）。
 
-### 3️⃣ リアルタイム音声通話 (`GeminiLiveSession`)
+### 3️⃣ 音声会話ループ (`ChatSession`)
 
-**モデル:** `gemini-2.5-flash-native-audio-preview-09-2025`
-**入力:** PCM16音声ストリーム（16kHz）
-**出力:** PCM16音声ストリーム + テキスト文字起こし
+ハイブリッド構成で高速・高精度を実現：
 
-システムインストラクションは `buildSystemInstruction()` で生成。ペルソナ × 言語の組み合わせで語彙・文体を制御。
+| 役割 | 技術 | 特徴 |
+|---|---|---|
+| **STT**（発話認識） | Web Speech API（ブラウザネイティブ） | 無料・低遅延・多言語対応 |
+| **LLM**（応答生成） | Gemini 2.5 Flash REST API | 会話履歴付き・キャラクター維持 |
+| **TTS**（音声合成） | OpenAI TTS-1 API | 自然な音声・5キャラクター音声 |
+| **音声再生** | Web Audio API（AudioContext） | autoplay制限を回避 |
+
+---
+
+## 🎙️ 音声パイプライン詳細仕様
+
+### フロー全体図
+
+```
+[ユーザーがマイクボタンをタップ]
+        │
+        ▼
+AudioContext.resume()          ← ユーザージェスチャー内でaudioコンテキスト解放
+SpeechRecognition.start()      ← ブラウザネイティブSTT起動
+        │
+[ユーザーが話す]
+        │
+        ▼
+SpeechRecognition.onresult     ← 認識テキスト取得
+setCallState('processing')
+ChatSession.sendText(text)
+        │
+        ├─ Gemini 2.5 Flash API ─ 応答テキスト生成
+        │         （会話履歴 history[] を保持して送信）
+        │
+        ▼
+onTranscript('model', text)    ← UIに応答テキスト表示
+setCallState('speaking')
+        │
+        ├─ OpenAI TTS-1 API ─── MP3音声データ生成
+        │         （voiceName → OpenAI音声名にマッピング）
+        │
+        ▼
+AudioContext.decodeAudioData() ← MP3をオーディオバッファに変換
+AudioBufferSourceNode.start()  ← 再生開始（autoplay制限なし）
+        │
+[音声再生終了]
+        │
+        ▼
+onTurnComplete()
+setCallState('idle')           ← 次の発話待ち状態へ
+```
+
+### callState 遷移図
+
+```
+         マイクタップ
+idle ──────────────────► listening
+ ▲                           │
+ │           音声認識完了      │
+ │    ◄──── (onresult)  ─────┤
+ │                           ▼
+ │                       processing
+ │                           │
+ │         Gemini応答完了     │
+ │    ◄──── (onTranscript) ──┤
+ │                           ▼
+ │                        speaking
+ │                           │
+ │         音声再生終了       │
+ └──────── (onended) ────────┘
+```
+
+| 状態 | 意味 | UIの表示 |
+|---|---|---|
+| `idle` | 発話待ち | 「ぽちっと押して話す🎤」 |
+| `listening` | STT録音中 | 「きいているよ！👂...」（マイクボタンが赤） |
+| `processing` | LLM + TTS 処理中 | 「かんがえているよ！🤔...」 |
+| `speaking` | 音声再生中 | 「おはなしちゅう👄...」 |
+
+### Gemini ボイス → OpenAI ボイス マッピング
+
+`ChatSession.mapVoice()` で変換します：
+
+| Gemini voiceName | OpenAI voice | 特徴 |
+|---|---|---|
+| `Puck` | `nova` | 子ども向け・明るい高音 |
+| `Charon` | `onyx` | 重厚な低音男声 |
+| `Kore` | `shimmer` | 女声・落ち着いた |
+| `Fenrir` | `echo` | 力強い男声 |
+| `Zephyr` | `alloy` | 中性的・バランス |
+
+### autoplay 問題と対策
+
+**問題**: ブラウザ（特に iOS Safari）では、ユーザージェスチャーなしに非同期で生成した音声を `new Audio().play()` で再生しようとするとブロックされます。Gemini/OpenAI API の呼び出しには数秒かかるため、応答が返ってきた時点ではジェスチャーコンテキストが失われています。
+
+**対策**: `AudioContext` を使用し、マイクボタンのタップ（ユーザージェスチャー）のタイミングで `audioContext.resume()` を呼び出して事前に解放します。
+
+```typescript
+// App.tsx — マイクボタンの onClick 内
+audioContextRef.current?.resume();  // ← ジェスチャー内で解放
+
+// gemini.ts — 音声再生（ジェスチャーコンテキスト不要）
+const audioBuffer = await this.audioContext.decodeAudioData(buffer.slice(0));
+const source = this.audioContext.createBufferSource();
+source.buffer = audioBuffer;
+source.connect(this.audioContext.destination);
+source.start();  // ← AudioContextが解放済みのためブロックされない
+```
+
+### 既知の制約・改善余地
+
+| 項目 | 現状 | 改善案 |
+|---|---|---|
+| STT精度 | ブラウザ依存（Chrome > Safari > Firefox） | Whisper API など外部STTへの切り替え |
+| TTS遅延 | Gemini応答 + OpenAI TTS = 合計3〜6秒 | ストリーミングTTSへの対応 |
+| API キー露出 | クライアントサイドにキーを埋め込み | バックエンドプロキシの追加 |
+| 会話履歴 | 直近5件のUI表示のみ（history[]は全件保持） | 長期会話での要約圧縮 |
+| 音声割り込み | 再生中はマイクボタン操作不可 | 割り込み検出・中断機能 |
 
 ---
 
@@ -88,11 +195,11 @@ interface CharacterProfile {
 
 ```typescript
 export const PERSONAS: Persona[] = [
-  { id: 'tiny',       label: 'ちびっこ',       emoji: '👶', ageRange: '2-3歳',  ageNum: 3,  isChild: true,  sectionLabel: 'こども', promptHint: '...' },
-  { id: 'kinder',     label: 'ようちえん',     emoji: '🌸', ageRange: '4-6歳',  ageNum: 5,  isChild: true,  sectionLabel: 'こども', promptHint: '...' },
-  { id: 'elementary', label: 'しょうがくせい', emoji: '🎒', ageRange: '7-12歳', ageNum: 10, isChild: true,  sectionLabel: 'こども', promptHint: '...' },
-  { id: 'adult',      label: 'おとな',         emoji: '🧠', ageRange: '大人',   ageNum: 30, isChild: false, sectionLabel: 'おとな', promptHint: '...' },
-  { id: 'expert',     label: 'ガチ博士',       emoji: '🔬', ageRange: '専門家', ageNum: 35, isChild: false, sectionLabel: 'おとな', promptHint: '...' },
+  { id: 'tiny',       label: 'ちびっこ',       emoji: '👶', ageRange: '2-3歳',  ageNum: 3,  isChild: true,  sectionLabel: 'こども' },
+  { id: 'kinder',     label: 'ようちえん',     emoji: '🌸', ageRange: '4-6歳',  ageNum: 5,  isChild: true,  sectionLabel: 'こども' },
+  { id: 'elementary', label: 'しょうがくせい', emoji: '🎒', ageRange: '7-12歳', ageNum: 10, isChild: true,  sectionLabel: 'こども' },
+  { id: 'adult',      label: 'おとな',         emoji: '🧠', ageRange: '大人',   ageNum: 30, isChild: false, sectionLabel: 'おとな' },
+  { id: 'expert',     label: 'ガチ博士',       emoji: '🔬', ageRange: '専門家', ageNum: 35, isChild: false, sectionLabel: 'おとな' },
 ];
 ```
 
@@ -119,6 +226,7 @@ export const PERSONAS: Persona[] = [
 1. `getVocabularyInstruction` に `if (isXX)` ブランチを追加
 2. `App.tsx` の `LANGUAGES` にエントリを追加
 3. `src/i18n/translations.ts` の `translations` オブジェクトに新言語の全キーを追加
+4. `ChatSession` 内の `langMapping` にもエントリを追加（Web Speech API の言語コード）
 
 ---
 
@@ -128,6 +236,7 @@ export const PERSONAS: Persona[] = [
 
 - Node.js 18+
 - Gemini API キー（[Google AI Studio](https://aistudio.google.com/) で取得）
+- OpenAI API キー（[OpenAI Platform](https://platform.openai.com/) で取得、TTS用）
 
 ### ローカル起動
 
@@ -135,8 +244,11 @@ export const PERSONAS: Persona[] = [
 # 依存関係をインストール
 npm install
 
-# APIキーを設定
-echo "GEMINI_API_KEY=your_key_here" > .env.local
+# APIキーを設定（.env.local は .gitignore 済み）
+cat > .env.local << EOF
+GEMINI_API_KEY=your_gemini_key_here
+OPENAI_API_KEY=your_openai_key_here
+EOF
 
 # 開発サーバー起動（http://localhost:3000）
 npm run dev
@@ -152,46 +264,72 @@ npm run lint     # TypeScriptエラーチェック
 
 ---
 
-## 🌍 デプロイ
+## 🌍 デプロイ（GitHub Pages）
 
-GitHub Pages を使ったデプロイ設定が含まれています。
+`main` ブランチへの push で `.github/workflows/deploy.yml` が自動実行されます。
 
-```bash
-# gh-pagesブランチにデプロイ（設定済みの場合）
-npm run build
-# distをGitHub Pagesのソースに設定してください
-```
+### 初回設定
+
+1. GitHub リポジトリ → **Settings → Secrets and variables → Actions**
+2. 以下のシークレットを追加：
+
+| シークレット名 | 値 | 用途 |
+|---|---|---|
+| `GEMINI_API_KEY` | Google AI Studio のAPIキー | Gemini API（テキスト生成・画像生成） |
+| `OPENAI_API_KEY` | OpenAI Platform のAPIキー | OpenAI TTS-1（音声合成） |
+
+3. GitHub リポジトリ → **Settings → Pages** → Source: `GitHub Actions` に設定
 
 ---
 
 ## 🔑 環境変数
 
-| 変数名 | 必須 | 説明 |
+| 変数名 | 必須 | 用途 |
 |---|---|---|
-| `GEMINI_API_KEY` | ✅ | Google AI StudioのGemini APIキー |
+| `GEMINI_API_KEY` | ✅ | Gemini API（キャラクター生成・画像生成・テキスト応答） |
+| `OPENAI_API_KEY` | ✅ | OpenAI TTS-1（音声合成） |
 
-`.env.local` に記載してください。`.gitignore` 済みで誤ってコミットされません。
+**重要**: これらのキーは Vite の `define` により**クライアントサイドのバンドルに埋め込まれます**。本番運用でキー漏洩を防ぎたい場合は、バックエンドプロキシ（Cloudflare Workers / Vercel Functions 等）の導入を検討してください。
 
 ---
 
 ## 💰 コスト目安（1セッションあたり）
 
+### 現行アーキテクチャ（ハイブリッド構成）
+
 | コンポーネント | モデル | 概算コスト |
 |---|---|---|
-| キャラクター生成 | gemini-flash-lite-latest | < $0.001 |
-| 画像生成 | gemini-2.5-flash-image | ~$0.01–0.03 |
-| 音声通話（100秒） | gemini-2.5-flash-native-audio-preview | ~$0.001–0.005 |
-| **合計** | | **~$0.01–0.04 / セッション** |
+| キャラクター生成（STT） | Web Speech API | 無料 |
+| キャラクター生成（テキスト） | Gemini 2.5 Flash | < $0.001 |
+| キャラクター画像生成 | Gemini 2.5 Flash | ~$0.01–0.03 |
+| 会話LLM（1ターンあたり） | Gemini 2.5 Flash | ~$0.001 |
+| 音声合成（1ターンあたり） | OpenAI TTS-1 | ~$0.001–0.003（~100文字想定） |
+| **1セッション合計（5ターン想定）** | | **~$0.02–0.05 / セッション** |
 
-> ⚠️ プレビューモデルは価格が変動する場合があります。[公式価格ページ](https://ai.google.dev/pricing)で最新情報を確認してください。
+### 日次上限設定（`src/lib/usageTracker.ts`）
+
+```typescript
+export const MAX_SESSIONS_PER_DAY = 20;   // 1日の最大セッション数（~100円/日）
+export const COST_PER_SESSION_YEN = 5;    // 1セッションあたりの概算コスト（円）
+```
+
+| 目安 | MAX_SESSIONS_PER_DAY | 概算コスト/日 |
+|---|---|---|
+| 個人利用 | 20 | ~100円 |
+| 家庭向け | 40 | ~200円 |
+| 小規模公開 | 100 | ~500円 |
+
+> ⚠️ プレビューモデルは価格が変動する場合があります。最新価格は [Gemini](https://ai.google.dev/pricing) / [OpenAI](https://openai.com/api/pricing) の公式ページで確認してください。
 
 ---
 
 ## 🚦 アプリの状態遷移
 
+### アプリ全体 (`AppState`)
+
 ```
 language → setup → camera → analyzing → incoming → talking → ended
-  ↑           ↑                                               |
+  ▲           ▲                                               │
   │           └──────────── reset() ─────────────────────────┘
   └── setup画面の「変更」リンクからも遷移可
 ```
@@ -201,18 +339,32 @@ language → setup → camera → analyzing → incoming → talking → ended
 | `language` | 言語選択画面（初回起動時 or 「変更」リンク押下時） |
 | `setup` | ペルソナ・言語確認画面（言語選択済みの場合は最初から表示） |
 | `camera` | カメラプレビュー・撮影待ち |
-| `analyzing` | Gemini APIによる解析中 |
+| `analyzing` | Gemini APIによるキャラクター解析中 |
 | `incoming` | 着信風UI（緑ボタンで通話開始） |
-| `talking` | ライブ音声通話中（100秒タイマー） |
+| `talking` | 音声会話中（100秒タイマー） |
 | `ended` | 通話終了・再プレイボタン |
 
-選択した言語は `localStorage` に保存され、次回起動時は `setup` から始まります。
+選択した言語・ペルソナは `localStorage` に保存され、次回起動時は `setup` から始まります。
+
+### 会話中の状態 (`callState`)
+
+```
+idle → listening → processing → speaking → idle
+```
+
+詳細は [音声パイプライン詳細仕様](#️-音声パイプライン詳細仕様) を参照。
 
 ---
 
 ## 📝 主要な型定義
 
 ```typescript
+// アプリ全体の画面状態
+type AppState = 'language' | 'setup' | 'camera' | 'analyzing' | 'incoming' | 'talking' | 'ended';
+
+// 会話中の音声入出力状態
+type CallState = 'idle' | 'listening' | 'processing' | 'speaking';
+
 // ペルソナ定義
 interface Persona {
   id: string;
@@ -221,7 +373,7 @@ interface Persona {
   ageRange: string;                           // 日本語デフォルト年齢表示
   ageNum: number;                             // AIプロンプトに渡す数値年齢
   promptHint: string;                         // キャラクター生成プロンプトへの追加指示
-  isChild: boolean;                           // true=こどもセクション、false=おとなセクション
+  isChild: boolean;                           // true=こどもセクション
   sectionLabel: string;                       // UIグルーピング用
   localizedLabels: Record<string, string>;    // 言語ラベル → 表示名
   localizedAgeRanges: Record<string, string>; // 言語ラベル → 年齢表示
@@ -237,6 +389,13 @@ interface CharacterProfile {
   description: string;
   trivia: string;
   imageUrl?: string;
+}
+
+// ChatSession コールバック
+interface ChatCallbacks {
+  onTranscript: (speaker: 'user' | 'model', text: string, isFinal: boolean, isDelta: boolean) => void;
+  onTurnComplete: () => void;
+  onError: (err: any) => void;
 }
 ```
 
@@ -260,28 +419,11 @@ t('ended.messageChild', langCode, { name: 'コップくん' }); // {name} 置換
 
 ## 📊 日次使用量制限
 
-一般公開に伴い、過剰利用を防ぐための簡易制限を実装しています。
-
-### 設定変更方法
-
-`src/lib/usageTracker.ts` の先頭定数を編集してください：
-
-```typescript
-export const MAX_SESSIONS_PER_DAY = 100;  // ← 1日の最大セッション数
-export const COST_PER_SESSION_YEN = 5;    // ← 1セッションあたりの概算コスト（円）
-```
-
-| 目安 | MAX_SESSIONS_PER_DAY |
-|---|---|
-| 〜200円/日 | 40 |
-| 〜500円/日 | 100 |
-| 〜1000円/日 | 200 |
-
 ### 仕組み
 
 - 使用量は `localStorage` に `{ date, sessions, estimatedCostYen }` 形式で保存
 - 日付が変わると自動リセット
-- ホーム画面に小さく `🛠 Dev: Today X/100 (~X¥)` として表示（開発者確認用）
+- ホーム画面に小さく `🛠 Dev: Today X/20 (~X¥)` として表示（開発者確認用）
 - 上限到達時はスタートボタンがグレーアウトし、撮影がブロックされます
 
 > ⚠️ localStorage ベースのため、ブラウザのデータ削除で回避可能です。本格的な制限が必要な場合はサーバーサイドでの管理をご検討ください。
