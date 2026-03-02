@@ -13,8 +13,8 @@
             └── 🎨 Imagen 4 Fast  →  キャラクター画像生成
                  └── 🎙️ 音声会話ループ（ChatSession）
                       ├── STT: Web Speech API（ブラウザネイティブ）
-                      ├── LLM: Gemini 2.5 Flash（REST）
-                      └── TTS: Web SpeechSynthesis API（ブラウザネイティブ）
+                      ├── LLM: Groq API / Llama-3.3-70B（高速推論）
+                      └── TTS: Google Cloud TTS Neural2（高品質音声合成）
 ```
 
 すべてのAI処理は **フロントエンドから直接 API を呼び出す**クライアントサイドアーキテクチャです。サーバーは静的ファイル配信のみ（GitHub Pages）。
@@ -97,8 +97,8 @@ interface CharacterProfile {
 | 役割 | 技術 | 特徴 |
 |---|---|---|
 | **STT**（発話認識） | Web Speech API（ブラウザネイティブ） | 無料・低遅延・多言語対応 |
-| **LLM**（応答生成） | Gemini 2.5 Flash REST API | 直近5ターンのみ送信・高速・低コスト |
-| **TTS**（音声合成） | Web SpeechSynthesis API（ブラウザネイティブ） | 無料・即時再生・OS依存の音声 |
+| **LLM**（応答生成） | Groq API / `llama-3.3-70b-versatile` | OpenAI互換・超高速推論・無料枠14,400req/日 |
+| **TTS**（音声合成） | Google Cloud TTS Neural2 | 高品質・低レイテンシ・多言語Neural2音声 |
 
 ---
 
@@ -112,16 +112,15 @@ interface CharacterProfile {
         ▼
 chatSession.sendText(greetMsg, isSystem=true)  ← 自動トリガー（UIには表示しない）
         │
-        ├─ Gemini 2.5 Flash API ─ 挨拶 + 豆知識 + クイズQ1 を生成
+        ├─ Groq API (Llama-3.3-70B) ─ 挨拶 + 豆知識 + クイズQ1 を生成
         │
         ▼
 onTranscript('model', text)    ← キャラクターの最初の発話を表示
-SpeechSynthesisUtterance       ← 音声で読み上げ
+Google Cloud TTS Neural2       ← 音声で読み上げ（MP3 → AudioContext 再生）
 
 [ユーザーがマイクボタンをタップしてクイズに回答]
         │
         ▼
-speechSynthesis.cancel()       ← SpeechSynthesis をユーザージェスチャーでアンロック
 SpeechRecognition.start()      ← ブラウザネイティブSTT起動（interimResults: true）
         │
 [ユーザーが話す（インタリム結果はリアルタイムにバブル表示）]
@@ -131,15 +130,15 @@ SpeechRecognition.onresult(isFinal=true) ← 最終認識テキスト取得
 setCallState('processing')
 ChatSession.sendText(text)     ← isSystem=false（UIに表示）
         │
-        ├─ Gemini 2.5 Flash API ─ 正解/不正解判定 + 解説 + 次のクイズ生成
+        ├─ Groq API (Llama-3.3-70B) ─ 正解/不正解判定 + 解説 + 次のクイズ生成
         │         （直近5ターン history.slice(-10) を送信）
         │
         ▼
 onTranscript('model', text)    ← UIに応答テキスト表示
 setCallState('speaking')
         │
-        ├─ SpeechSynthesisUtterance ─ ブラウザTTSで即時再生
-        │         （voiceName → pitch/rate にマッピング）
+        ├─ Google Cloud TTS Neural2 ─ 高品質音声合成・MP3 AudioContext 再生
+        │         （voiceName → pitch/speakingRate にマッピング）
         │
 [音声再生終了]
         │
@@ -161,7 +160,7 @@ idle ──────────────────► listening
  │                           ▼
  │                       processing
  │                           │
- │         Gemini応答完了     │
+ │         Groq応答完了       │
  │    ◄──── (onTranscript) ──┤
  │                           ▼
  │                        speaking
@@ -177,62 +176,59 @@ idle ──────────────────► listening
 | `processing` | LLM + TTS 処理中 | 「かんがえているよ！🤔...」 |
 | `speaking` | 音声再生中 | 「おはなしちゅう👄...」 |
 
-### voiceName → ブラウザ TTS パラメータ マッピング
+### voiceName → Google Cloud TTS パラメータ マッピング
 
-`ChatSession.getVoiceParams()` で変換します：
+`ChatSession.getVoiceParams()` / `getGoogleVoiceName()` で変換します：
 
-| voiceName | pitch | rate | 特徴 |
+| voiceName | pitch（セミトーン） | speakingRate | 特徴 |
 |---|---|---|---|
-| `Puck` | 1.3 | 1.0 | 子ども向け・明るい高音 |
-| `Charon` | 0.7 | 0.9 | 重厚な低音・ゆっくり |
-| `Kore` | 1.1 | 1.0 | やや高め・女声寄り |
-| `Fenrir` | 0.9 | 1.0 | やや低め・力強い |
-| `Zephyr` | 1.0 | 1.0 | 中性的・標準 |
+| `Puck` | +3.0 | 1.0 | 子ども向け・明るい高音 |
+| `Charon` | -3.0 | 0.9 | 重厚な低音・ゆっくり |
+| `Kore` | +1.0 | 1.0 | やや高め・女声寄り |
+| `Fenrir` | -1.0 | 1.0 | やや低め・力強い |
+| `Zephyr` | 0.0 | 1.0 | 中性的・標準 |
 
-ブラウザの言語別ボイスは `getBrowserVoice()` で `getLangCode()` の言語プレフィックスにマッチする最初のボイスを選択します。
+> `pitch` は SpeechSynthesis の 0〜2 スケールを `(pitch - 1.0) * 10` でセミトーン（-20〜+20）に変換しています。
 
-`getBrowserVoice()` は **`async` 関数**です。ブラウザによっては `getVoices()` が最初の呼び出しで空配列を返すため、`voiceschanged` イベントを最大1秒待機してから再取得します。
+**言語別 Neural2 音声マッピング** (`getGoogleVoiceName()`):
 
-```typescript
-private async getBrowserVoice(): Promise<SpeechSynthesisVoice | null> {
-  let voices = window.speechSynthesis.getVoices();
-  if (voices.length === 0) {
-    await new Promise<void>(resolve => {
-      window.speechSynthesis.addEventListener('voiceschanged', () => resolve(), { once: true });
-      setTimeout(resolve, 1000); // 最大1秒待機
-    });
-    voices = window.speechSynthesis.getVoices();
-  }
-  // 言語プレフィックスにマッチする最初のボイスを返す
-  const langPrefix = this.getLangCode().substring(0, 2);
-  const langVoices = voices.filter(v => v.lang.toLowerCase().startsWith(langPrefix));
-  return langVoices[0] || voices[0] || null;
-}
-```
+| 言語コード | 音声名 |
+|---|---|
+| `ja-JP` | `ja-JP-Neural2-B` |
+| `en-US` | `en-US-Neural2-C` |
+| `zh-CN` | `cmn-CN-Wavenet-A` |
+| `ko-KR` | `ko-KR-Neural2-A` |
+| `ms-MY` | `ms-MY-Wavenet-A` |
+| `ta-IN` | `ta-IN-Standard-A` |
 
-### autoplay と SpeechSynthesis のアンロック
-
-**問題**: `SpeechSynthesis.speak()` も非同期コールバック内からの呼び出しはブラウザによってブロックされる場合があります。
-
-**対策**: `startCall()` の先頭（ユーザーのボタンタップ直後）で `speechSynthesis.cancel()` を呼び出し、SpeechSynthesis コンテキストをあらかじめアンロックします。
+**Google Cloud TTS 再生フロー** (`speakWithGoogleTTS()`):
 
 ```typescript
-// App.tsx — startCall() の先頭（ユーザージェスチャー内）
-window.speechSynthesis.cancel();  // ← アンロック
+// 1. REST API でMP3を取得（Base64）
+const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=...`);
+const { audioContent } = await res.json();
 
-// gemini.ts — sendText() 内（非同期・ジェスチャーコンテキスト外）
-const utterance = new SpeechSynthesisUtterance(responseText);
-utterance.lang = this.getLangCode();
-window.speechSynthesis.speak(utterance);  // ← アンロック済みのため再生可能
+// 2. Base64 → ArrayBuffer → AudioBuffer
+const buffer = await audioContext.decodeAudioData(bytes.buffer);
+
+// 3. AudioBufferSourceNode で再生・終了を Promise で待機
+source.onended = () => resolve();
+source.start();
 ```
+
+### autoplay と AudioContext のアンロック
+
+**問題**: `AudioContext` もユーザージェスチャー外では `suspended` 状態になりブロックされます。
+
+**対策**: `startCall()` のユーザータップ時に `AudioContext` を初期化・`resume()` しておくか、`speakWithGoogleTTS()` 内の最初の呼び出しで `new AudioContext()` を行います（ジェスチャーの恩恵を受けた非同期チェーン内であればブロックされません）。
 
 ### 既知の制約・改善余地
 
 | 項目 | 現状 | 改善案 |
 |---|---|---|
 | STT精度 | ブラウザ依存（Chrome > Safari > Firefox） | Whisper API など外部STTへの切り替え |
-| TTS音質 | OS/ブラウザ依存（デバイスで差あり） | ElevenLabs など高品質TTSへの切り替え |
-| TTS遅延 | Gemini応答のみ = 600〜850ms | Gemini ストリーミング + センテンス単位TTS |
+| TTS音質 | Google Cloud TTS Neural2（高品質） | ElevenLabs Flash でさらに低レイテンシ化 |
+| LLM遅延 | Groq Llama-3.3-70B = ~200ms | さらに小型モデル（8B等）への切り替え |
 | API キー露出 | クライアントサイドにキーを埋め込み | バックエンドプロキシの追加 |
 | 会話履歴 | 直近5ターン（10件）のみ送信 | 長期会話での要約圧縮 |
 | 音声割り込み | 再生中はマイクボタン操作不可 | 割り込み検出・中断機能 |
@@ -298,6 +294,8 @@ npm install
 # APIキーを設定（.env.local は .gitignore 済み）
 cat > .env.local << EOF
 GEMINI_API_KEY=your_gemini_key_here
+GROQ_API_KEY=your_groq_key_here
+GOOGLE_TTS_API_KEY=your_google_tts_key_here
 EOF
 
 # 開発サーバー起動（http://localhost:3000）
@@ -325,9 +323,12 @@ npm run lint     # TypeScriptエラーチェック
 
 | シークレット名 | 値 | 用途 |
 |---|---|---|
-| `GEMINI_API_KEY` | Google AI Studio のAPIキー | Gemini API（キャラクター生成・画像生成・テキスト応答） |
+| `GEMINI_API_KEY` | Google AI Studio のAPIキー | Gemini API（キャラクター生成・画像生成） |
+| `GROQ_API_KEY` | Groq Console のAPIキー | 会話LLM（Llama-3.3-70B） |
+| `GOOGLE_TTS_API_KEY` | Google Cloud Console のAPIキー | 音声合成（Neural2） |
 
-> 以前の構成で `OPENAI_API_KEY` を設定していた場合は削除してかまいません。OpenAI TTS は廃止され、現在はブラウザ SpeechSynthesis API を使用しています。
+> `GROQ_API_KEY` は [Groq Console](https://console.groq.com/) で無料取得できます。
+> `GOOGLE_TTS_API_KEY` は [Google Cloud Console](https://console.cloud.google.com/) で **Text-to-Speech API** を有効化後に作成してください（APIキー制限: Text-to-Speech API のみ許可推奨）。
 
 3. GitHub リポジトリ → **Settings → Pages** → Source: `GitHub Actions` に設定
 
@@ -337,7 +338,9 @@ npm run lint     # TypeScriptエラーチェック
 
 | 変数名 | 必須 | 用途 |
 |---|---|---|
-| `GEMINI_API_KEY` | ✅ | Gemini API（キャラクター生成・画像生成・テキスト応答） |
+| `GEMINI_API_KEY` | ✅ | Gemini API（キャラクター生成・Imagen 4 画像生成） |
+| `GROQ_API_KEY` | ✅ | Groq API（会話LLM: Llama-3.3-70B） |
+| `GOOGLE_TTS_API_KEY` | ✅ | Google Cloud TTS（Neural2 音声合成） |
 
 **重要**: これらのキーは Vite の `define` により**クライアントサイドのバンドルに埋め込まれます**。本番運用でキー漏洩を防ぎたい場合は、バックエンドプロキシ（Cloudflare Workers / Vercel Functions 等）の導入を検討してください。
 
@@ -348,11 +351,13 @@ npm run lint     # TypeScriptエラーチェック
 ```typescript
 // vite.config.ts
 define: {
-  'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || process.env.GEMINI_API_KEY),
+  'process.env.GEMINI_API_KEY':    JSON.stringify(env.GEMINI_API_KEY    || process.env.GEMINI_API_KEY),
+  'process.env.GROQ_API_KEY':      JSON.stringify(env.GROQ_API_KEY      || process.env.GROQ_API_KEY),
+  'process.env.GOOGLE_TTS_API_KEY':JSON.stringify(env.GOOGLE_TTS_API_KEY|| process.env.GOOGLE_TTS_API_KEY),
 }
 ```
 
-- **ローカル開発**: `.env.local` ファイルから `env.GEMINI_API_KEY` が読まれます
+- **ローカル開発**: `.env.local` ファイルから各キーが読まれます
 - **GitHub Actions**: `env:` ブロックの値が `process.env` に入るため、`loadEnv()` が `.env` ファイルを見つけられなくてもフォールバックで正しく埋め込まれます
 
 > `loadEnv()` は `.env*` ファイルのみを参照し、`process.env` を直接参照しない点に注意してください。フォールバックがないと、CI環境でAPIキーが `"undefined"` としてバンドルされ、本番環境でAIの返答が来ない原因になります。
@@ -361,16 +366,18 @@ define: {
 
 ## 💰 コスト目安（1セッションあたり）
 
-### 現行アーキテクチャ（フル無料TTS構成）
+### 現行アーキテクチャ（Groq + Google Cloud TTS 構成）
 
 | コンポーネント | モデル | 概算コスト |
 |---|---|---|
-| キャラクター生成（STT） | Web Speech API | 無料 |
+| 発話認識（STT） | Web Speech API | 無料 |
 | キャラクター生成（テキスト） | gemini-flash-lite-latest | < $0.001 |
 | キャラクター画像生成 | imagen-4.0-fast-generate-001 | ~$0.003–0.01 |
-| 会話LLM（1ターンあたり） | Gemini 2.5 Flash | ~$0.001 |
-| 音声合成（1ターンあたり） | Web SpeechSynthesis | **$0（無料）** |
-| **1セッション合計（5ターン想定）** | | **~$0.01–0.03 / セッション** |
+| 会話LLM（1ターンあたり） | Groq / llama-3.3-70b-versatile | **$0（無料枠 14,400req/日）** |
+| 音声合成（1ターンあたり） | Google Cloud TTS Neural2 | ~$0.00016（約0.025円） |
+| **1セッション合計（5ターン想定）** | | **~$0.004–0.015 / セッション** |
+
+> Groq の無料枠（14,400リクエスト/日）を超えた場合は有料プランへの切り替えが必要です。Google Cloud TTS Standard は 4,000,000文字/月まで無料です。
 
 ### 日次上限設定（`src/lib/usageTracker.ts`）
 

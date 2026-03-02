@@ -1,4 +1,5 @@
 import { GoogleGenAI, Content } from "@google/genai";
+import OpenAI from 'openai';
 
 export interface QuizItem {
   question: string;
@@ -421,7 +422,7 @@ ${getVocabularyInstruction('elementary', language)}
 }
 
 export class ChatSession {
-  private ai: GoogleGenAI;
+  private groqClient: OpenAI;
   private history: Content[] = [];
   private systemInstruction: string;
   private profile: CharacterProfile;
@@ -431,10 +432,16 @@ export class ChatSession {
     onTurnComplete: () => void;
     onError: (err: any) => void;
   };
+  private audioContext: AudioContext | null = null;
+  private currentSource: AudioBufferSourceNode | null = null;
   public isActive: boolean = true;
 
   constructor(profile: CharacterProfile, persona: Persona, language: string, callbacks: any) {
-    this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+    this.groqClient = new OpenAI({
+      apiKey: process.env.GROQ_API_KEY!,
+      baseURL: 'https://api.groq.com/openai/v1',
+      dangerouslyAllowBrowser: true,
+    });
     this.systemInstruction = buildSystemInstruction(profile, persona, language);
     this.profile = profile;
     this.language = language;
@@ -449,18 +456,26 @@ export class ChatSession {
     return map[this.language] || 'en-US';
   }
 
-  private async getBrowserVoice(): Promise<SpeechSynthesisVoice | null> {
-    let voices = window.speechSynthesis.getVoices();
-    if (voices.length === 0) {
-      await new Promise<void>(resolve => {
-        window.speechSynthesis.addEventListener('voiceschanged', () => resolve(), { once: true });
-        setTimeout(resolve, 1000);
-      });
-      voices = window.speechSynthesis.getVoices();
-    }
-    const langPrefix = this.getLangCode().substring(0, 2);
-    const langVoices = voices.filter(v => v.lang.toLowerCase().startsWith(langPrefix));
-    return langVoices[0] || voices[0] || null;
+  private toOpenAIMessages(): OpenAI.Chat.ChatCompletionMessageParam[] {
+    return [
+      { role: 'system', content: this.systemInstruction },
+      ...this.history.slice(-10).map(c => ({
+        role: (c.role === 'model' ? 'assistant' : 'user') as 'assistant' | 'user',
+        content: c.parts[0]?.text || '',
+      })),
+    ];
+  }
+
+  private getGoogleVoiceName(): string {
+    const map: Record<string, string> = {
+      'ja-JP': 'ja-JP-Neural2-B',
+      'en-US': 'en-US-Neural2-C',
+      'zh-CN': 'cmn-CN-Wavenet-A',
+      'ko-KR': 'ko-KR-Neural2-A',
+      'ms-MY': 'ms-MY-Wavenet-A',
+      'ta-IN': 'ta-IN-Standard-A',
+    };
+    return map[this.getLangCode()] || 'en-US-Neural2-C';
   }
 
   private getVoiceParams(): { pitch: number; rate: number } {
@@ -474,6 +489,41 @@ export class ChatSession {
     return params[this.profile.voiceName] ?? { pitch: 1.0, rate: 1.0 };
   }
 
+  private async speakWithGoogleTTS(text: string): Promise<void> {
+    const { pitch, rate } = this.getVoiceParams();
+    // SpeechSynthesis の pitch (0~2) を Google TTS のセミトーン (-20~+20) に変換
+    const googlePitch = (pitch - 1.0) * 10;
+
+    const res = await fetch(
+      `https://texttospeech.googleapis.com/v1/text:synthesize?key=${process.env.GOOGLE_TTS_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          input: { text },
+          voice: { languageCode: this.getLangCode(), name: this.getGoogleVoiceName() },
+          audioConfig: { audioEncoding: 'MP3', pitch: googlePitch, speakingRate: rate },
+        }),
+      }
+    );
+    const { audioContent } = await res.json();
+    const binary = atob(audioContent);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    if (!this.audioContext) this.audioContext = new AudioContext();
+    const buffer = await this.audioContext.decodeAudioData(bytes.buffer);
+
+    return new Promise(resolve => {
+      this.currentSource?.stop();
+      this.currentSource = this.audioContext!.createBufferSource();
+      this.currentSource.buffer = buffer;
+      this.currentSource.connect(this.audioContext!.destination);
+      this.currentSource.onended = () => resolve();
+      this.currentSource.start();
+    });
+  }
+
   async sendText(text: string, isSystem: boolean = false) {
     if (!this.isActive) return;
 
@@ -484,37 +534,21 @@ export class ChatSession {
     this.history.push({ role: 'user', parts: [{ text }] });
 
     try {
-      // Plan C: 軽量モデル + 直近5ターンのみ送信
-      const response = await this.ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: this.history.slice(-10),
-        config: {
-          systemInstruction: this.systemInstruction,
-        }
+      // Groq API (Llama 3.3 70B) で高速レスポンス
+      const completion = await this.groqClient.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: this.toOpenAIMessages(),
       });
 
       if (!this.isActive) return;
 
-      const responseText = response.text || "";
+      const responseText = completion.choices[0]?.message?.content || "";
       this.history.push({ role: 'model', parts: [{ text: responseText }] });
       this.callbacks.onTranscript('model', responseText, true, false);
 
-      // Plan A: ブラウザ SpeechSynthesis TTS（無料・即時）
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(responseText);
-      utterance.lang = this.getLangCode();
-      const voice = await this.getBrowserVoice();
-      if (voice) utterance.voice = voice;
-      const { pitch, rate } = this.getVoiceParams();
-      utterance.pitch = pitch;
-      utterance.rate = rate;
-      utterance.onend = () => {
-        if (this.isActive) this.callbacks.onTurnComplete();
-      };
-      utterance.onerror = () => {
-        if (this.isActive) this.callbacks.onTurnComplete();
-      };
-      window.speechSynthesis.speak(utterance);
+      // Google Cloud TTS で高品質音声合成
+      await this.speakWithGoogleTTS(responseText);
+      if (this.isActive) this.callbacks.onTurnComplete();
     } catch (e) {
       if (this.isActive) {
         this.callbacks.onError(e);
@@ -524,6 +558,6 @@ export class ChatSession {
 
   close() {
     this.isActive = false;
-    window.speechSynthesis.cancel();
+    this.currentSource?.stop();
   }
 }
