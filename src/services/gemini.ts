@@ -506,7 +506,12 @@ export class ChatSession {
         }),
       }
     );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`Google TTS ${res.status}: ${(err as any)?.error?.message ?? res.statusText}`);
+    }
     const { audioContent } = await res.json();
+    if (!audioContent) throw new Error('Google TTS: audioContent missing');
     const binary = atob(audioContent);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
